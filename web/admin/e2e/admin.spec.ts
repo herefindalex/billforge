@@ -690,7 +690,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     expect(count('SELECT COUNT(*) FROM invoices WHERE subscription_id=(SELECT id FROM subscriptions WHERE quote_id=?)', quoteID)).toBe(1)
   })
 
-  test('a lost payment command response recovers one operation after reload', async ({ page }) => {
+  test('a lost payment command response recovers one operation across sessions and reload', async ({ page, browser }) => {
     await signIn(page)
     const { invoiceID } = await createAcceptedSubscription(page, `payment-recovery-${randomUUID()}`, 'basic')
     const beforeCommands = count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)
@@ -700,11 +700,13 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.getByRole('button', { name: '預覽付款' }).click()
     await expect(page.getByRole('button', { name: '確認建立付款' })).toBeVisible()
     let originalKey = ''
+    let originalBody = ''
     let dropped = false
     await page.route('**/admin/api/commands', async (route) => {
       if (!dropped && route.request().method() === 'POST') {
         dropped = true
         originalKey = route.request().headers()['idempotency-key']
+        originalBody = route.request().postData() ?? ''
         await commitThenDropResponse(page, route)
       } else {
         await route.continue()
@@ -714,6 +716,34 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.getByRole('dialog').getByRole('button', { name: '確認建立' }).click()
     await expect(page.getByText('原付款命令的結果尚未確認')).toBeVisible()
     expect(originalKey).toBeTruthy()
+    expect(originalBody).toBeTruthy()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)).toBe(beforeCommands + 1)
+    expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations + 1)
+
+    const commandID = scalar("SELECT id FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)
+    const freshContext = await browser.newContext()
+    try {
+      const freshPage = await freshContext.newPage()
+      expect((await freshPage.request.get(`${app.baseURL}/admin/api/session`)).status()).toBe(401)
+      await signIn(freshPage)
+      const session = await (await freshPage.request.get(`${app.baseURL}/admin/api/session`)).json() as { csrf_token: string }
+      const replay = await freshPage.request.post(`${app.baseURL}/admin/api/commands`, {
+        headers: {
+          Origin: app.baseURL,
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': session.csrf_token,
+          'Idempotency-Key': originalKey,
+        },
+        data: originalBody,
+      })
+      expect(replay.status()).toBe(200)
+      expect((await replay.json()).id).toBe(commandID)
+      await freshPage.goto(`${app.baseURL}/admin/commands/${commandID}`)
+      await expect(freshPage.getByRole('main').getByText(commandID, { exact: true }).first()).toBeVisible()
+      await expect(freshPage.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    } finally {
+      await freshContext.close()
+    }
     expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)).toBe(beforeCommands + 1)
     expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations + 1)
 
@@ -1665,7 +1695,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     expect(Number(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', providerKey, app.providerPath))).toBe(1)
   })
 
-  test('provider commit followed by a crash recovers the original payment command once', async ({ page }) => {
+  test('provider commit followed by a crash recovers the original payment in a new session', async ({ page, browser }) => {
     await signIn(page)
     const { operationID } = await createAcceptedSubscription(page, `crash-capture-${randomUUID()}`, 'basic')
     await page.goto(`${app.baseURL}/admin/lab/faults/${operationID}`)
@@ -1695,9 +1725,18 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     const providerKey = scalar('SELECT provider_key FROM payment_operations WHERE id=?', operationID)
     expect(Number(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', providerKey, app.providerPath))).toBe(1)
 
+    const freshContext = await browser.newContext()
+    try {
+      const freshPage = await freshContext.newPage()
+      await signIn(freshPage)
+      await freshPage.goto(`${app.baseURL}/admin/commands/${commandID}`)
+      await expect(freshPage.getByRole('main').getByText('accepted', { exact: true }).first()).toBeVisible()
+      await freshPage.getByRole('button', { name: '繼續原命令' }).click()
+      await expect(freshPage.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    } finally {
+      await freshContext.close()
+    }
     await page.reload()
-    await expect(page.getByRole('button', { name: '繼續原命令' })).toBeVisible()
-    await page.getByRole('button', { name: '繼續原命令' }).click()
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
     expect(scalar('SELECT status FROM payment_operations WHERE id=?', operationID)).toBe('succeeded')
     expect(count('SELECT COUNT(*) FROM allocations WHERE operation_id=?', operationID)).toBe(1)
@@ -1708,7 +1747,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     expect(Number(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', providerKey, app.providerPath))).toBe(1)
   })
 
-  test('provider commit followed by a crash preserves the original refund reservation', async ({ page }) => {
+  test('provider commit followed by a crash preserves the refund reservation across sessions', async ({ page, browser }) => {
     await signIn(page)
     const { invoiceID } = await createPaidSubscription(page, `crash-refund-${randomUUID()}`, 'basic')
     await page.goto(`${app.baseURL}/admin/invoices/${invoiceID}/reductions/new`)
@@ -1754,8 +1793,18 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     const providerKey = scalar('SELECT provider_key FROM refund_operations WHERE id=?', refundID)
     expect(Number(scalar('SELECT COUNT(*) FROM refunds WHERE provider_key=?', providerKey, app.providerPath))).toBe(1)
 
+    const freshContext = await browser.newContext()
+    try {
+      const freshPage = await freshContext.newPage()
+      await signIn(freshPage)
+      await freshPage.goto(`${app.baseURL}/admin/commands/${commandID}`)
+      await expect(freshPage.getByRole('main').getByText('accepted', { exact: true }).first()).toBeVisible()
+      await freshPage.getByRole('button', { name: '繼續原命令' }).click()
+      await expect(freshPage.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    } finally {
+      await freshContext.close()
+    }
     await page.reload()
-    await page.getByRole('button', { name: '繼續原命令' }).click()
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
     expect(scalar('SELECT status FROM refund_operations WHERE id=?', refundID)).toBe('succeeded')
     expect(count("SELECT COALESCE(SUM(amount_minor),0) FROM refund_operations WHERE grant_id=? AND status IN ('created','submitted','unknown')", grantID)).toBe(0)

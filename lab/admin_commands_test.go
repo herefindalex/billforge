@@ -408,6 +408,7 @@ func TestAdminPauseMigrationAtomicReceipt(t *testing.T) {
 }
 
 func TestAdminRecordUsageAtomicReceiptAndExactQuantity(t *testing.T) {
+	const quantity = "9007199254740993"
 	l, clock := openChangingLab(t)
 	ctx := context.Background()
 	receipt := paidProSubscription(t, l, "usage-admin-tenant")
@@ -417,7 +418,7 @@ func TestAdminRecordUsageAtomicReceiptAndExactQuantity(t *testing.T) {
 	}
 	payload, err := json.Marshal(AdminRecordUsagePayload{
 		Source: "worker", EventID: "admin-event-1", SubscriptionID: receipt.SubscriptionID,
-		MeterID: "tasks", OccurredAt: "2026-09-29T12:00:00Z", Quantity: "20003",
+		MeterID: "tasks", OccurredAt: "2026-09-29T12:00:00Z", Quantity: quantity,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -434,18 +435,22 @@ func TestAdminRecordUsageAtomicReceiptAndExactQuantity(t *testing.T) {
 	if err := json.Unmarshal(command.ResultRefs, &refs); err != nil {
 		t.Fatal(err)
 	}
-	if refs["quantity"] != "20003" || refs["period_index"] != "0" {
+	if refs["quantity"] != quantity || refs["period_index"] != "0" {
 		t.Fatalf("usage refs: %+v", refs)
 	}
 	var events, receipts int
+	var storedQuantity string
 	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM usage_events WHERE source='worker' AND event_id='admin-event-1'`).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT CAST(quantity AS TEXT) FROM usage_events WHERE source='worker' AND event_id='admin-event-1'`).Scan(&storedQuantity); err != nil {
 		t.Fatal(err)
 	}
 	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
 		t.Fatal(err)
 	}
-	if events != 1 || receipts != 1 {
-		t.Fatalf("facts and receipt: events=%d receipts=%d", events, receipts)
+	if events != 1 || receipts != 1 || storedQuantity != quantity {
+		t.Fatalf("facts and receipt: events=%d receipts=%d stored_quantity=%s", events, receipts, storedQuantity)
 	}
 	if _, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "record-usage-001", "C26", "", payload, ""); err != nil || !replay {
 		t.Fatalf("usage replay=%v err=%v", replay, err)

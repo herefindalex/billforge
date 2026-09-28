@@ -4868,28 +4868,40 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     expect(clockResponse.status()).toBe(200)
     const occurredAt = (await clockResponse.json() as { business_time: string }).business_time
     const eventID = `usage-replay-${randomUUID()}`
+    const quantity = '9007199254740993'
     await page.goto(`${app.baseURL}/admin/usage-events/new`)
-    async function submitUsage(quantity: string) {
+    async function fillUsage(quantity: string) {
       for (const [label, value] of [
         ['訂閱 ID', subscription.subscriptionID], ['Meter ID', 'tasks'],
         ['來源', 'worker'], ['事件 ID', eventID],
         ['發生時間（UTC）', occurredAt], ['數量', quantity],
       ]) await page.getByLabel(label, { exact: true }).fill(value)
+    }
+    async function submitUsage(quantity: string) {
+      await fillUsage(quantity)
       await page.getByRole('button', { name: '檢查並記錄' }).click()
       await page.getByRole('dialog').getByRole('button', { name: '確認記錄' }).click()
     }
-    await submitUsage('7')
+    await submitUsage(quantity)
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
     expect(count('SELECT COUNT(*) FROM usage_events WHERE source=? AND event_id=?', 'worker', eventID)).toBe(1)
     await page.getByRole('button', { name: '記錄另一筆事件' }).click()
-    await submitUsage('7')
+    await submitUsage(quantity)
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
     expect(count('SELECT COUNT(*) FROM usage_events WHERE source=? AND event_id=?', 'worker', eventID)).toBe(1)
     await page.getByRole('button', { name: '記錄另一筆事件' }).click()
-    await submitUsage('8')
+    await submitUsage('9007199254740994')
     await expect(page.getByRole('main').getByText('failed', { exact: true }).first()).toBeVisible()
     await expect(page.getByText('DOMAIN_REJECTED', { exact: true })).toBeVisible()
     expect(count('SELECT COUNT(*) FROM usage_events WHERE source=? AND event_id=?', 'worker', eventID)).toBe(1)
-    expect(scalar('SELECT quantity FROM usage_events WHERE event_id=?', eventID)).toBe('7')
+    expect(scalar('SELECT quantity FROM usage_events WHERE event_id=?', eventID)).toBe(quantity)
+
+    await page.getByRole('button', { name: '記錄另一筆事件' }).click()
+    const commandsBefore = count('SELECT COUNT(*) FROM admin_commands WHERE action_id=?', 'C26')
+    await fillUsage('9223372036854775808')
+    await page.getByRole('button', { name: '檢查並記錄' }).click()
+    await expect(page.getByText('數量不可超過 int64 上限')).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(count('SELECT COUNT(*) FROM admin_commands WHERE action_id=?', 'C26')).toBe(commandsBefore)
   })
 })

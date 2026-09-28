@@ -1173,6 +1173,55 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     }
   })
 
+  test('an immediate upgrade refuses a preview after another operator changes the subscription', async ({ page }) => {
+    await signIn(page)
+    const customerID = `upgrade-source-stale-${randomUUID()}`
+    const { subscriptionID } = await createPaidSubscription(page, customerID, 'basic')
+    const revision = scalar('SELECT revision FROM subscriptions WHERE id=?', subscriptionID)
+    await page.goto(`${app.baseURL}/admin/quotes/new`)
+    await page.getByRole('button', { name: '建立另一筆報價' }).click()
+    await page.getByRole('textbox', { name: /客戶 ID/ }).fill(customerID)
+    await page.getByRole('textbox', { name: /方案 ID/ }).fill('pro')
+    await page.getByRole('textbox', { name: /席次/ }).fill('5')
+    await page.getByRole('checkbox', { name: '這是現有訂閱的變更報價' }).check()
+    await page.getByRole('textbox', { name: /訂閱 ID/ }).fill(subscriptionID)
+    await page.getByRole('combobox', { name: /變更方式/ }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText('立即升級', { exact: true }).click()
+    await page.getByRole('textbox', { name: /目前 Revision/ }).fill(revision)
+    await page.getByRole('button', { name: '建立報價' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    await page.getByRole('button', { name: '前往立即升級' }).click()
+    const quoteID = await page.getByRole('textbox', { name: '已綁定的報價 ID' }).inputValue()
+    const fingerprint = await page.getByRole('textbox', { name: '變更綁定 Fingerprint' }).inputValue()
+    await page.getByRole('button', { name: '預覽立即升級' }).click()
+    await expect(page.getByRole('button', { name: '確認升級' })).toBeVisible()
+
+    const other = await page.context().newPage()
+    try {
+      await other.goto(`${app.baseURL}/admin/subscriptions/${subscriptionID}/cancel`)
+      await other.getByRole('button', { name: '預覽取消' }).click()
+      await other.getByRole('button', { name: '確認排程取消' }).click()
+      await other.getByRole('dialog').getByRole('button', { name: '確認排程' }).click()
+      await expect(other.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+
+      const response = page.waitForResponse((value) => value.url().endsWith('/admin/api/commands') && value.request().method() === 'POST' && (value.request().postData() ?? '').includes('"action_id":"C04"'))
+      await page.getByRole('button', { name: '確認升級' }).click()
+      await page.getByRole('dialog').getByRole('button', { name: '確認升級' }).click()
+      expect((await response).status()).toBe(409)
+      const stale = page.locator('.ant-alert').filter({ hasText: '原方案變更預覽已失效，請檢查最新來源' })
+      await expect(stale).toBeVisible()
+      await expect(stale.getByText('訂閱 revision 已改變，請建立對應新 revision 的變更報價與綁定。')).toBeVisible()
+      await expect(page.getByRole('textbox', { name: '已綁定的報價 ID' })).toHaveValue(quoteID)
+      await expect(page.getByRole('textbox', { name: '變更綁定 Fingerprint' })).toHaveValue(fingerprint)
+      await expect(page.getByRole('button', { name: '確認升級' })).toHaveCount(0)
+      expect(count('SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?', subscriptionID)).toBe(0)
+      expect(count('SELECT COUNT(*) FROM supplemental_invoices WHERE subscription_id=?', subscriptionID)).toBe(0)
+      expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C04' AND c.target_id=?", subscriptionID)).toBe(0)
+    } finally {
+      await other.close()
+    }
+  })
+
   test('an immediate upgrade shows lower and higher amounts after business clock changes', async ({ page }) => {
     await signIn(page)
     const customerID = `upgrade-stale-${randomUUID()}`

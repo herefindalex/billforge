@@ -128,6 +128,9 @@ func newWithClock(l *lab.Lab, cfg Config, now func() time.Time) (http.Handler, e
 	mux.HandleFunc("GET /admin/api/overview", s.protected(s.overview))
 	mux.HandleFunc("GET /admin/api/lab/clock", s.protected(s.labClock))
 	mux.HandleFunc("GET /admin/api/lab/faults", s.protected(s.labFaults))
+	mux.HandleFunc("GET /admin/api/lab/status", s.protectedCapability("lab.control", s.labStatus))
+	mux.HandleFunc("GET /admin/api/lab/provider-captures", s.protectedCapability("lab.control", s.providerCaptures))
+	mux.HandleFunc("GET /admin/api/lab/provider-refunds", s.protectedCapability("lab.control", s.providerRefunds))
 	mux.HandleFunc("GET /admin/api/{resource}", s.protected(s.listResource))
 	mux.HandleFunc("GET /admin/api/customers", s.protected(s.listCustomers))
 	mux.HandleFunc("GET /admin/api/customers/{id}", s.protected(s.customerDetail))
@@ -415,6 +418,23 @@ func (s *Server) protected(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		next(w, r)
+	}
+}
+
+func (s *Server) protectedCapability(capability string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		item, ok := s.lookupSession(r)
+		if !ok {
+			apiError(w, http.StatusUnauthorized, "SESSION_REQUIRED", "Sign in to continue")
+			return
+		}
+		for _, allowed := range item.capabilities {
+			if allowed == capability {
+				next(w, r)
+				return
+			}
+		}
+		apiError(w, http.StatusForbidden, "PERMISSION_DENIED", "This read is not permitted")
 	}
 }
 

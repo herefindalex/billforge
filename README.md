@@ -65,6 +65,8 @@ The contracts list opens a contract version detail page with its published terms
 
 The **Batch jobs** page lists recent jobs with item counts and links to their detailed results. Its cursor pagination keeps earlier pages stable when new jobs are created.
 
+With `lab.control` permission, **Lab controls** shows fake-provider status and paginated capture and refund records. These are observations of a separate local database, and monetary amounts remain exact minor-unit strings in the API.
+
 To limit administrator permissions, optionally set `BILLFORGE_ADMIN_CAPABILITIES=read` or provide other comma-separated capabilities. Without this setting, the local administrator has full permissions. Restart to apply capability changes. Commands being recovered are re-evaluated against the new permissions and any existing external obligations; see the [Web Admin implementation record](docs/implementation/web-admin.md).
 
 To embed frontend assets in the binary, build the frontend first and then run the `go build -tags admin_ui` command above. Without that tag, the development server reads built assets from `cmd/lab/adminassets/dist`. See the [Web Admin guide and acceptance record](docs/implementation/web-admin.md) for operations, upgrades, and recovery.

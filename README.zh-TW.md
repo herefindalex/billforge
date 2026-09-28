@@ -65,6 +65,8 @@ go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db
 
 「批次工作」頁面列出近期工作、逐項計數與詳情連結；游標分頁可避免新工作插入後移動已讀頁面。
 
+具備 `lab.control` 權限時，「實驗控制」可查看 fake provider 狀態，以及分頁的收款與退款紀錄。這些資料來自獨立的本機資料庫；API 金額仍以精確的最小貨幣單位字串回傳。
+
 若要限制管理員能力，可設定 `BILLFORGE_ADMIN_CAPABILITIES=read`，或提供其他以逗號分隔的能力。未設定時，本機管理員具有完整權限。能力變更需重啟；恢復中的命令會依新權限與既有外部義務重新判定，詳見 [Web Admin 實作紀錄](docs/implementation/web-admin.md)。
 
 若要將前端資產嵌入二進位檔，先建置前端，再執行上方的 `go build -tags admin_ui`。不帶此 tag 的開發執行會從 `cmd/lab/adminassets/dist` 讀取建置產物。完整操作、升級與恢復流程見 [Web Admin 使用與驗收紀錄](docs/implementation/web-admin.md)。

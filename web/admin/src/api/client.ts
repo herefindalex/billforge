@@ -63,6 +63,8 @@ export type ContractVersionDetail = {
 
 export type LabClock = { mode: 'real' | 'fixed'; value_utc?: string; revision: number; business_time: string }
 export type LabFaultTicket = { id: string; operation_kind: string; operation_id: string; mode: string; claimed_command_id?: string; created_at: string }
+export type LabStatus = { status: { clock: Omit<LabClock, 'revision'> & { revision: string }; pending_fault_tickets: string; provider: { captures: string; refunds: string; capture_decisions: string; refund_decisions: string } }; observed_at: string; provider_observed_at: string }
+export type ProviderOperation = { provider_key: string; source_capture_key?: string; amount_minor: string; currency: string; status: string }
 
 export type ResourcePage = {
   items: Record<string, unknown>[]
@@ -429,6 +431,13 @@ export const api = {
  overview: () => request<Overview>('/overview'),
  clock: () => request<LabClock>('/lab/clock'),
   faults: (cursor = '') => request<CursorPage<LabFaultTicket>>(`/lab/faults?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+  labStatus: () => request<LabStatus>('/lab/status'),
+  providerOperations: (kind: 'captures' | 'refunds', cursor = '', status = '') => {
+    const params = new URLSearchParams({ limit: '20' })
+    if (cursor) params.set('cursor', cursor)
+    if (status) params.set('status', status)
+    return request<CursorPage<ProviderOperation>>(`/lab/provider-${kind}?${params}`)
+  },
   job: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}`),
   jobs: (cursor = '') => request<CursorPage<JobSummary>>(`/jobs?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
   resource: (name: string, cursor = '', filters: Record<string, string> = {}) => {

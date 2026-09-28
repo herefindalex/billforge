@@ -35,6 +35,7 @@ export type LocalAdmin = {
 export async function startLocalAdmin(options: {
   seedDemo?: boolean
   omitFilePassword?: boolean
+  capabilities?: string
   processCredentials?: { username: string; password: string }
 } = {}): Promise<LocalAdmin> {
   const directory = mkdtempSync(join(tmpdir(), 'billforge-web-e2e-'))
@@ -85,6 +86,7 @@ export async function startLocalAdmin(options: {
         BILLFORGE_INTERNAL_TOKEN: internalToken,
         BILLFORGE_ADMIN_USERNAME: options.processCredentials?.username,
         BILLFORGE_ADMIN_PASSWORD: options.processCredentials?.password,
+        BILLFORGE_ADMIN_CAPABILITIES: options.capabilities,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })

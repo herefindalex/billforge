@@ -28,7 +28,7 @@ React 19＋Ant Design 管理介面已接到本機 Go server。C01–C49 各有�
 - 金融操作先取得 preview，再提交命令。preview 綁定操作者、目標、來源 revision、business clock revision 與有效期；過期或來源變動要重新預覽。重送相同 idempotency key 與相同 payload 應回到原命令；同 key 不同 payload 拒絕。
 - API 先將命令持久化，再執行 domain 動作。命令收據與業務效果在可行處同交易；外部 fake provider 的未知結果保留 `waiting_verification`，查證原操作後再推進。不要因網頁逾時建立新的付款或退款義務。服務重啟會掃描可恢復命令。
 - 批次工作 C13、C30、C32、C44、C45 固定 preview 成員，逐項提交，持久化成功／衝突／等待／略過結果，重啟後接續未完成項。worker lease 使用 wall clock 與 generation fencing；舊 worker 無法覆寫接管者結果。
-- `/admin/lab/controls` 可設定持久化 business clock、付款或退款 fake provider 決策，以及一次性指定故障。provider 決策與 control receipt 同交易；重新啟動後時鐘仍有效。實驗控制不代表真實支付服務行為。
+- `/admin/lab/controls` 可設定持久化 business clock、付款或退款 fake provider 決策，以及一次性指定故障。具備 `lab.control` 能力時，頁面另顯示獨立 provider 資料庫的收款、退款、已設定決策數與待用故障票據數；`/admin/lab/provider-captures`、`/admin/lab/provider-refunds` 提供狀態篩選與游標分頁。provider 決策與 control receipt 同交易；重新啟動後時鐘仍有效。商務與 provider 資料分別觀測，實驗控制不代表真實支付服務行為。
 
 - 瀏覽器的管理 API 讀取等待上限為 10 秒，其他請求為 20 秒。逾時只表示瀏覽器沒有取得確定回應；命令頁保留原 request key，查證後才能開始另一筆。概覽與列表若保留上次成功讀取的資料，會顯示更新失敗警示及原觀測時間；重新讀取成功後警示消失。
 
@@ -392,3 +392,9 @@ C09／C16 的命令 `succeeded` 表示送出流程已完成；`result_refs.opera
 `web/admin/e2e/admin.spec.ts` 直接驗證 C01 建立報價與 C05 排程取消在頁面重整後仍顯示原命令，C05 檢視原結果後可依最新訂閱狀態執行 C06。其他既有並行、變更報價與用量情境改由介面明確啟動下一筆操作；定向重跑通過。這些證據只涵蓋指定的重整與後續操作路徑，A01–A30 未完成項目與逐動作故障矩陣仍依驗收計畫追蹤。
 
 完整 Playwright 回歸：109／109 通過（`pnpm --dir web/admin exec playwright test`，15.7 分鐘）；`pnpm --dir web/admin build` 與 `go test ./...` 亦通過。這是目前工作樹的回歸結果，並非 A01–A30 全項簽核。
+
+### Fake provider 獨立狀態與分頁（2026-09-28）
+
+`GET /admin/api/lab/status` 分別讀取業務時鐘、待用故障票據數與獨立 provider 資料庫計數，並回傳 provider 自己的觀測時間；它不宣稱跨兩個資料庫的原子快照。`GET /admin/api/lab/provider-captures` 與 `/provider-refunds` 只供 `lab.control` 能力讀取，支援 1–100 筆上限、狀態篩選與綁定資源及篩選條件的游標。金額以字串傳輸，provider key 僅出現在有權限的診斷頁。
+
+`TestAdminProviderPagesKeepIndependentCursorAndExactAmounts` 驗證新 provider 事件不移動已讀頁、refund 來源與大額金額；`TestProviderReadsRequireLabCapabilityAndPreserveMoney` 驗證 401／403、游標跨資源與跨篩選拒絕、精確 JSON 金額及資料庫故障。`provider-state.spec.ts` 以真實瀏覽器、雙 SQLite 驗狀態數、分頁、篩選、退款來源與大額顯示。

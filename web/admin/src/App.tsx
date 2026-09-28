@@ -14,6 +14,7 @@ import CommandList from './features/commands/CommandList'
 import CommandDetail from './features/commands/CommandDetail'
 import JobDetails from './features/jobs/JobDetails'
 import JobList from './features/jobs/JobList'
+import ProviderOperationList from './features/lab/ProviderOperationList'
 import PauseMigration from './features/migrations/PauseMigration'
 import PriceMigrationDetail from './features/migrations/PriceMigrationDetail'
 import RecordUsage from './features/usage/RecordUsage'
@@ -402,18 +403,21 @@ const faultAction: ActionConfig = {
  ], description: '票據只在指定操作下一次管理派送時消耗。',
 }
 
-function LabControls() {
+function LabControls({ session }: { session: Session }) {
   const navigate = useNavigate()
   const [operationID, setOperationID] = useState('')
   const [faultCursor, setFaultCursor] = useState('')
   const [faultBack, setFaultBack] = useState<string[]>([])
   const clock = useQuery({ queryKey: ['lab-clock'], queryFn: api.clock })
+  const canInspectProvider = session.capabilities.includes('lab.control')
+  const labStatus = useQuery({ queryKey: ['lab-status'], queryFn: api.labStatus, enabled: canInspectProvider })
   const faults = useQuery({ queryKey: ['lab-faults', faultCursor], queryFn: () => api.faults(faultCursor) })
- const [kind, setKind] = useState('payment')
- const id = operationID.trim()
- return <Space direction="vertical" size="large" style={{ width: '100%' }}>
+  const [kind, setKind] = useState('payment')
+  const id = operationID.trim()
+  return <Space direction="vertical" size="large" style={{ width: '100%' }}>
   <Typography.Title level={2}>實驗控制</Typography.Title>
   <Typography.Text type="secondary">本機實驗環境 · 假付款服務。固定時鐘只影響商務時間。</Typography.Text>
+  {!canInspectProvider && <Alert type="info" showIcon message="此帳號只有讀取權限；設定時鐘、提供者結果與故障票據需要 lab.control。" />}
   <Card title="目前業務時鐘" extra={<Button onClick={() => clock.refetch()}>更新</Button>}>
    {clock.isLoading ? <Skeleton active /> : clock.isError ? <Alert type="error" message="無法讀取時鐘" /> :
     <Descriptions column={1} items={[
@@ -421,14 +425,30 @@ function LabControls() {
      { key: 'time', label: '業務時間（UTC）', children: clock.data?.business_time },
      { key: 'revision', label: '版本', children: clock.data?.revision },
     ]} />}
-   <Button type="primary" onClick={() => navigate('/lab/clock')}>設定時鐘</Button>
+   <Button type="primary" disabled={!canInspectProvider} onClick={() => navigate('/lab/clock')}>設定時鐘</Button>
   </Card>
+  {canInspectProvider && <Card title="Fake provider 狀態" extra={<Button onClick={() => void labStatus.refetch()} loading={labStatus.isFetching}>更新</Button>}>
+   {labStatus.isPending ? <Skeleton active /> : labStatus.isError ? <Alert type="error" showIcon message="無法讀取實驗狀態" description={labStatus.error.message} /> : <>
+    <Descriptions column={1} items={[
+      { key: 'captures', label: '收款結果', children: labStatus.data.status.provider.captures },
+      { key: 'refunds', label: '退款結果', children: labStatus.data.status.provider.refunds },
+      { key: 'capture-decisions', label: '已設定收款結果', children: labStatus.data.status.provider.capture_decisions },
+      { key: 'refund-decisions', label: '已設定退款結果', children: labStatus.data.status.provider.refund_decisions },
+      { key: 'faults', label: '待使用故障票據', children: labStatus.data.status.pending_fault_tickets },
+    ]} />
+    <Space wrap>
+      <Button onClick={() => navigate('/lab/provider-captures')}>查看收款結果</Button>
+      <Button onClick={() => navigate('/lab/provider-refunds')}>查看退款結果</Button>
+    </Space>
+    <Typography.Paragraph type="secondary">提供者資料觀測時間：{labStatus.data.provider_observed_at}。商務與提供者資料分別讀取。</Typography.Paragraph>
+   </>}
+  </Card>}
   <Card title="指定操作結果與故障">
    <Space wrap>
     <Input aria-label="付款或退款操作 ID" style={{ width: 300 }} placeholder="付款或退款操作 ID" value={operationID} onChange={(e) => setOperationID(e.target.value)} />
     <Select aria-label="操作種類" value={kind} onChange={setKind} options={[{ value: 'payment', label: '付款' }, { value: 'refund', label: '退款' }]} />
-    <Button disabled={!id} onClick={() => navigate(`/lab/${kind === 'payment' ? 'payment' : 'refund'}-decisions/${encodeURIComponent(id)}`)}>設定結果</Button>
-    <Button disabled={!id} onClick={() => navigate(`/lab/faults/${encodeURIComponent(id)}`, { state: { operation_kind: kind } })}>建立故障票據</Button>
+    <Button disabled={!id || !canInspectProvider} onClick={() => navigate(`/lab/${kind === 'payment' ? 'payment' : 'refund'}-decisions/${encodeURIComponent(id)}`)}>設定結果</Button>
+    <Button disabled={!id || !canInspectProvider} onClick={() => navigate(`/lab/faults/${encodeURIComponent(id)}`, { state: { operation_kind: kind } })}>建立故障票據</Button>
    </Space>
   </Card>
   <Card title="待使用與最近的故障票據" extra={<Button onClick={() => faults.refetch()}>更新</Button>}>
@@ -807,7 +827,9 @@ function AdminShell({ session, onLogout }: { session: Session; onLogout: () => v
           <Route path="/jobs/entitlement-refresh" element={<ActionForm session={session} config={refreshEntitlementsAction} />} />
           <Route path="/jobs" element={<JobList />} />
           <Route path="/jobs/:id" element={<JobDetails />} />
- <Route path="/lab/controls" element={<LabControls />} />
+          <Route path="/lab/controls" element={<LabControls session={session} />} />
+          <Route path="/lab/provider-captures" element={<ProviderOperationList kind="captures" />} />
+          <Route path="/lab/provider-refunds" element={<ProviderOperationList kind="refunds" />} />
  <Route path="/lab/clock" element={<ActionForm session={session} config={clockAction} />} />
  <Route path="/lab/payment-decisions/:id" element={<ActionForm session={session} config={paymentDecisionAction} />} />
  <Route path="/lab/refund-decisions/:id" element={<ActionForm session={session} config={refundDecisionAction} />} />

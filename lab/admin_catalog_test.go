@@ -9,6 +9,78 @@ import (
 	"time"
 )
 
+func TestAdminPublishPriceReceiptFailureRecoversWithoutPartialVersion(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	commerce, provider := filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db")
+	now := func() time.Time { return fixedNow }
+	l, err := Open(commerce, provider, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	payload := json.RawMessage(`{"id":"receipt-pro-v2","version":"2","fixed_minor":"6000","seat_minor":"1000","included_tasks":"100","usage_rate_num":"1","usage_rate_den":"1","effective_from":"` + fixedNow.Format(time.RFC3339Nano) + `"}`)
+	preview, err := l.AdminCreatePreview(ctx, "local-admin", "C18", "", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "receipt-price-key", "C18", "", payload, preview.ID)
+	if err != nil || replay {
+		t.Fatalf("submit: %+v replay=%t err=%v", command, replay, err)
+	}
+	if _, err := l.db.ExecContext(ctx, `CREATE TEMP TRIGGER fail_price_receipt BEFORE INSERT ON admin_command_receipts BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AdminExecuteCommand(ctx, command.ID); err == nil {
+		t.Fatal("receipt failure should roll back published price")
+	}
+	var versions, components, receipts int
+	readCounts := func() {
+		t.Helper()
+		if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM price_versions WHERE id='receipt-pro-v2'`).Scan(&versions); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM price_components WHERE price_version_id='receipt-pro-v2'`).Scan(&components); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readCounts()
+	if versions != 0 || components != 0 || receipts != 0 {
+		t.Fatalf("receipt failure left partial price: versions=%d components=%d receipts=%d", versions, components, receipts)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = Open(commerce, provider, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.AdminResumeAccepted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := l.AdminCommand(ctx, command.ID)
+	if err != nil || recovered.Status != "succeeded" {
+		t.Fatalf("original command not recovered: %+v err=%v", recovered, err)
+	}
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "receipt-price-key", "C18", "", payload, preview.ID)
+	if err != nil || !replay || replayed.ID != command.ID {
+		t.Fatalf("idempotent replay changed command: %+v replay=%t err=%v", replayed, replay, err)
+	}
+	readCounts()
+	if versions != 1 || components != 3 || receipts != 1 {
+		t.Fatalf("recovery duplicated or lost price: versions=%d components=%d receipts=%d", versions, components, receipts)
+	}
+}
+
 func TestAdminMeterRegistrationRejectsStaleConflictingSchema(t *testing.T) {
 	ctx := context.Background()
 	l, _, _ := openTestLab(t)

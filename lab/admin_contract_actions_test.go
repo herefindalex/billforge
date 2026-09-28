@@ -5,9 +5,88 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestAdminPublishContractReceiptFailureRecoversWithoutDuplicateVersion(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	commerce, provider := filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db")
+	now := func() time.Time { return fixedNow }
+	l, err := Open(commerce, provider, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(adminPublishContractPayload{
+		ID: "receipt-contract-v1", CustomerID: "receipt-contract-customer", Version: "1",
+		BasePriceVersionID: "pro-v1", FixedMinor: "4000", SeatMinor: "700",
+		EffectiveFrom: fixedNow.Format(time.RFC3339Nano),
+		EffectiveTo:   fixedNow.Add(30 * 24 * time.Hour).Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := l.AdminCreatePreview(ctx, "local-admin", "C31", "", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "receipt-contract-key", "C31", "", payload, preview.ID)
+	if err != nil || replay {
+		t.Fatalf("submit: %+v replay=%t err=%v", command, replay, err)
+	}
+	if _, err := l.db.ExecContext(ctx, `CREATE TEMP TRIGGER fail_contract_receipt BEFORE INSERT ON admin_command_receipts BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AdminExecuteCommand(ctx, command.ID); err == nil {
+		t.Fatal("receipt failure should roll back published contract")
+	}
+	var versions, receipts int
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM contract_versions WHERE id='receipt-contract-v1'`).Scan(&versions); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if versions != 0 || receipts != 0 {
+		t.Fatalf("receipt failure left partial publication: versions=%d receipts=%d", versions, receipts)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = Open(commerce, provider, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.AdminResumeAccepted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := l.AdminCommand(ctx, command.ID)
+	if err != nil || recovered.Status != "succeeded" {
+		t.Fatalf("original command not recovered: %+v err=%v", recovered, err)
+	}
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "receipt-contract-key", "C31", "", payload, preview.ID)
+	if err != nil || !replay || replayed.ID != command.ID {
+		t.Fatalf("idempotent replay changed command: %+v replay=%t err=%v", replayed, replay, err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM contract_versions WHERE id='receipt-contract-v1'`).Scan(&versions); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if versions != 1 || receipts != 1 {
+		t.Fatalf("recovery duplicated or lost publication: versions=%d receipts=%d", versions, receipts)
+	}
+}
 
 func TestAdminPublishContractPreviewConcurrentSameID(t *testing.T) {
 	for _, changed := range []bool{false, true} {

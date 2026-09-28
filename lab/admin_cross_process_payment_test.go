@@ -23,7 +23,15 @@ func TestAdminCrossProcessPaymentWorker(t *testing.T) {
 	if commercePath == "" || providerPath == "" || commandID == "" || readyPath == "" || gatePath == "" {
 		t.Fatal("cross-process worker settings are incomplete")
 	}
-	l, err := Open(commercePath, providerPath, nil)
+	var clock func() time.Time
+	if value := os.Getenv("BILLFORGE_TEST_BUSINESS_TIME"); value != "" {
+		at, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clock = func() time.Time { return at }
+	}
+	l, err := Open(commercePath, providerPath, clock)
 	if err != nil {
 		t.Fatal(err)
 	}

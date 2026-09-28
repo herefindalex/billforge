@@ -39,6 +39,28 @@ export type PriceVersionDetail = {
  ComponentsTruncated: boolean
 }
 
+export type ContractVersionDetail = {
+ ID: string
+ CustomerID: string
+ Version: string
+ BasePriceVersionID: string
+ Currency: string
+ FixedMinor: string
+ SeatMinor: string
+ PaymentDays: string
+ EffectiveFrom: string
+ EffectiveTo: string
+ PostContractPriceVersionID: string
+ Checksum: string
+ PublishedAt: string
+ QuoteCount: string
+ SubscriptionCount: string
+ Quotes: { ID: string; SeatQuantity: string; AmountMinor: string; Currency: string; ExpiresAt: string; Accepted: boolean }[]
+ QuotesTruncated: boolean
+ Subscriptions: { ID: string; Status: string; SeatQuantity: string; LatestInvoiceID: string; LatestDueAt: string | null; InvoiceOutstandingMinor: string | null; InvoiceCurrency: string; Transitioned: boolean }[]
+ SubscriptionsTruncated: boolean
+}
+
 export type LabClock = { mode: 'real' | 'fixed'; value_utc?: string; revision: number; business_time: string }
 export type LabFaultTicket = { id: string; operation_kind: string; operation_id: string; mode: string; claimed_command_id?: string; created_at: string }
 
@@ -417,6 +439,7 @@ export const api = {
   },
  quote: (id: string) => request<QuoteDetail>(`/quotes/${encodeURIComponent(id)}`),
  price: (id: string) => request<{ price: PriceVersionDetail; observed_at: string }>(`/prices/${encodeURIComponent(id)}`),
+ contract: (id: string) => request<{ contract: ContractVersionDetail; observed_at: string }>(`/contracts/${encodeURIComponent(id)}`),
   subscription: (id: string) => request<SubscriptionDetail>(`/subscriptions/${encodeURIComponent(id)}`),
  subscriptionPeriods: (id: string, cursor = '') => request<CursorPage<SubscriptionPeriod>>(`/subscriptions/${encodeURIComponent(id)}/periods?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
  usagePeriod: (id: string, index: string) => request<{ period: UsagePeriodDetail; observed_at: string }>(`/usage-periods/${encodeURIComponent(id)}/${encodeURIComponent(index)}`),

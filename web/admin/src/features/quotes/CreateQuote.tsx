@@ -25,7 +25,7 @@ export default function CreateQuote({ session }: { session: Session }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [changeQuote, setChangeQuote] = useState(false)
-  const [quoteKind, setQuoteKind] = useState<'plan' | 'contract'>('plan')
+ const [quoteKind, setQuoteKind] = useState<'plan' | 'contract'>(searchParams.has('contract_version_id') ? 'contract' : 'plan')
   const queryClient = useQueryClient()
   const [pending, setPending] = useState<Pending | null>(readPending)
   const [commandID, setCommandID] = useStoredCommandID(session.actor_id, 'C01')
@@ -88,7 +88,7 @@ export default function CreateQuote({ session }: { session: Session }) {
       description={<Space direction="vertical"><span>可用原 request key 查詢同一筆操作，避免建立第二筆報價。</span><Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>查詢原操作</Button></Space>}
     />}
     <Card>
-      <Form form={form} layout="vertical" initialValues={{ customer_id: searchParams.get('customer_id') ?? '', cohort: 'default', seats: '0' }} onFinish={send} disabled={pending !== null || commandID !== null}>
+      <Form form={form} layout="vertical" initialValues={{ customer_id: searchParams.get('customer_id') ?? '', contract_version_id: searchParams.get('contract_version_id') ?? '', cohort: 'default', seats: searchParams.has('contract_version_id') ? '1' : '0' }} onFinish={send} disabled={pending !== null || commandID !== null}>
         <Form.Item label="客戶 ID" name="customer_id" rules={[{ required: true, message: '請輸入客戶 ID' }]}><Input autoComplete="off" /></Form.Item>
         <Form.Item label="報價種類"><Select aria-label="報價種類" value={quoteKind} onChange={(value: 'plan' | 'contract') => { setQuoteKind(value); setChangeQuote(false); form.setFieldValue('seats', value === 'contract' ? '1' : '0') }} options={[{ value: 'plan', label: '一般方案' }, { value: 'contract', label: '企業合約' }]} /></Form.Item>
         {quoteKind === 'plan' ? <>

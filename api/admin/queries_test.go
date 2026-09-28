@@ -84,6 +84,7 @@ func TestFinancialReadsReportDatabaseFailureInsteadOfEmptyOrMissingData(t *testi
 		{"reconciliation runs list", "/admin/api/reconciliation-runs", "reconciliation-runs", s.listResource},
 		{"credit detail", "/admin/api/credits/object-1", "", s.creditDetail},
 		{"price detail", "/admin/api/prices/object-1", "", s.priceDetail},
+		{"contract detail", "/admin/api/contracts/object-1", "", s.contractDetail},
 		{"payment detail", "/admin/api/payments/object-1", "", s.paymentDetail},
 		{"refund detail", "/admin/api/refunds/object-1", "", s.refundDetail},
 		{"discrepancies list", "/admin/api/discrepancies", "discrepancies", s.listResource},

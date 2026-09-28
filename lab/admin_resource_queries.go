@@ -27,8 +27,8 @@ var adminResourceFilterColumns = map[string]map[string]string{
 	"contracts":           {"id_prefix": "id", "customer_id": "customer_id"},
 	"usage-events":        {"subscription_id": "subscription_id", "period_index": "period_index", "source": "source"},
 	"usage-periods":       {"subscription_id": "subscription_id"},
-	"quotes":              {"id_prefix": "id", "customer_id": "customer_id"},
-	"subscriptions":       {"id_prefix": "id", "customer_id": "customer_id", "status": "status", "created_from": "created_at", "created_before": "created_at"},
+	"quotes":              {"id_prefix": "id", "customer_id": "customer_id", "contract_version_id": "contract_version_id"},
+	"subscriptions":       {"id_prefix": "id", "customer_id": "customer_id", "contract_version_id": "contract_version_id", "status": "status", "created_from": "created_at", "created_before": "created_at"},
 	"invoices":            {"id_prefix": "id", "subscription_id": "subscription_id"},
 	"payments":            {"id_prefix": "id", "invoice_id": "invoice_id", "status": "status"},
 	"immediate-changes":   {"id_prefix": "id", "subscription_id": "subscription_id", "status": "status"},
@@ -185,6 +185,15 @@ func (l *Lab) AdminFilteredResourcePage(ctx context.Context, name string, after 
 				filter += " AND " + column + "<?"
 			}
 			filterArgs = append(filterArgs, nano)
+			continue
+		}
+		if key == "contract_version_id" {
+			if name == "quotes" {
+				filter += " AND id IN (SELECT quote_id FROM contract_quotes WHERE contract_version_id=?)"
+			} else {
+				filter += " AND id IN (SELECT subscription_id FROM contract_subscriptions WHERE contract_version_id=?)"
+			}
+			filterArgs = append(filterArgs, value)
 			continue
 		}
 		if key == "id_prefix" {

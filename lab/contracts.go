@@ -47,9 +47,11 @@ CREATE TRIGGER IF NOT EXISTS contract_immutable_delete BEFORE DELETE ON contract
 CREATE TABLE IF NOT EXISTS contract_quotes (
 quote_id TEXT PRIMARY KEY REFERENCES quotes(id),
 contract_version_id TEXT NOT NULL REFERENCES contract_versions(id));
+CREATE INDEX IF NOT EXISTS contract_quotes_version_quote_idx ON contract_quotes(contract_version_id,quote_id);
 CREATE TABLE IF NOT EXISTS contract_subscriptions (
 subscription_id TEXT PRIMARY KEY REFERENCES subscriptions(id),
 contract_version_id TEXT NOT NULL REFERENCES contract_versions(id));
+CREATE INDEX IF NOT EXISTS contract_subscriptions_version_subscription_idx ON contract_subscriptions(contract_version_id,subscription_id);
 CREATE TABLE IF NOT EXISTS contract_transitions (
 subscription_id TEXT PRIMARY KEY REFERENCES subscriptions(id),
 contract_version_id TEXT NOT NULL REFERENCES contract_versions(id),

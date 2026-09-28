@@ -2121,6 +2121,43 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     expect(count('SELECT total_minor FROM invoices WHERE id=?', invoiceID)).toBe(7500)
     expect(count('SELECT COUNT(*) FROM outbox WHERE id IN (SELECT "capture:"||o.id FROM payment_operations o WHERE o.invoice_id=?)', invoiceID)).toBe(0)
     expect(count('SELECT COUNT(*) FROM contract_subscriptions WHERE subscription_id=?', subscriptionID)).toBe(1)
+
+    await page.goto(`${app.baseURL}/admin/contracts?id_prefix=${encodeURIComponent(contractID)}`)
+    await page.getByRole('button', { name: '開啟合約' }).click()
+    await expect(page).toHaveURL(`${app.baseURL}/admin/contracts/${contractID}`)
+    await expect(page.getByRole('heading', { name: '合約版本詳情' })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('heading', { name: '合約版本詳情' })).toBeVisible()
+    await expect(page.getByText('Net30', { exact: true })).toBeVisible()
+    await expect(page.getByText('尚未指定合約期滿後價格')).toBeVisible()
+  await expect(page.getByRole('row', { name: /本地未結清金額/ }).getByText('USD 75.00')).toBeVisible()
+  await expect(page.getByRole('button', { name: invoiceID })).toBeVisible()
+  await page.getByRole('button', { name: '查看全部報價' }).click()
+  await expect(page).toHaveURL(`${app.baseURL}/admin/quotes?contract_version_id=${contractID}`)
+  await expect(page.getByRole('textbox', { name: '合約版本 ID' })).toHaveValue(contractID)
+  await expect(page.getByRole('row').filter({ hasText: quoteID })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: '合約版本 ID' })).toHaveValue(contractID)
+  await page.goto(`${app.baseURL}/admin/contracts/${contractID}`)
+  await page.getByRole('button', { name: '查看全部訂閱' }).click()
+  await expect(page).toHaveURL(`${app.baseURL}/admin/subscriptions?contract_version_id=${contractID}`)
+  await expect(page.getByRole('textbox', { name: '合約版本 ID' })).toHaveValue(contractID)
+  await expect(page.getByRole('row').filter({ hasText: subscriptionID })).toBeVisible()
+  await page.goto(`${app.baseURL}/admin/contracts/${contractID}`)
+  await page.setViewportSize({ width: 390, height: 844 })
+    const contractOverflow = await page.evaluate(() => ({
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+      elements: [...document.querySelectorAll('body *')].filter((element) => {
+        const rect = element.getBoundingClientRect()
+        return rect.right > window.innerWidth + 1 && rect.left < window.innerWidth && rect.width > 0
+      }).slice(0, 12).map((element) => ({ tag: element.tagName, className: element.className, text: element.textContent?.trim().slice(0, 40) })),
+    }))
+    expect(contractOverflow.documentWidth, JSON.stringify(contractOverflow.elements)).toBeLessThanOrEqual(contractOverflow.viewportWidth)
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await page.getByRole('button', { name: '建立合約報價' }).click()
+    await expect(page.getByRole('textbox', { name: '客戶 ID' })).toHaveValue(customerID)
+    await expect(page.getByRole('textbox', { name: '合約版本 ID' })).toHaveValue(contractID)
     const sessionResponse = await page.request.get(`${app.baseURL}/admin/api/session`)
     const session = await sessionResponse.json() as { csrf_token: string }
     async function setClock(mode: 'fixed' | 'real', value?: string) {

@@ -13,6 +13,10 @@ body { background: #f4f6f5; }
 .resource-filters { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 16px; padding: 16px; background: #fff; border: 1px solid #e4e9e7; border-radius: 8px; }
 .resource-filters .ant-form-item { margin-bottom: 0; }
 .form-page { max-width: 760px; }
+.contract-detail .ant-descriptions-view table { table-layout: fixed; width: 100%; }
+.contract-detail .ant-descriptions-item-label { width: 38%; }
+.contract-detail .ant-descriptions-item-content, .contract-detail .ant-card-head-title { overflow-wrap: anywhere; }
+.contract-detail .ant-descriptions-item-content .ant-btn-link { white-space: normal; height: auto; text-align: start; overflow-wrap: anywhere; padding-inline: 0; }
 .result-card { margin-top: 20px; }
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 25% 15%, #d9e9e5, transparent 40%), #edf2f0; }
 .login-card { width: min(100%, 420px); box-shadow: 0 20px 60px rgba(15, 45, 48, .1); }

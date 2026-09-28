@@ -49,6 +49,8 @@ go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db
 
 開啟 `http://127.0.0.1:8080/admin/`。管理伺服器僅綁定明確的 loopback IP，且請求的 Host 必須與監聽位址一致。若要使用其他環境檔，將 `--env-file path` 放在資料庫路徑之前。程序環境變數優先於檔案值。
 
+合約列表可開啟合約版本詳情，查看已發布條款、相關報價與訂閱。詳情頁的報價及訂閱各最多顯示 20 筆；使用「查看全部報價」或「查看全部訂閱」可開啟依該合約版本篩選的分頁列表。也可從詳情頁建立已預填客戶與合約版本的報價。
+
 若要限制管理員能力，可設定 `BILLFORGE_ADMIN_CAPABILITIES=read`，或提供其他以逗號分隔的能力。未設定時，本機管理員具有完整權限。能力變更需重啟；恢復中的命令會依新權限與既有外部義務重新判定，詳見 [Web Admin 實作紀錄](docs/implementation/web-admin.md)。
 
 若要將前端資產嵌入二進位檔，先建置前端，再執行上方的 `go build -tags admin_ui`。不帶此 tag 的開發執行會從 `cmd/lab/adminassets/dist` 讀取建置產物。完整操作、升級與恢復流程見 [Web Admin 使用與驗收紀錄](docs/implementation/web-admin.md)。

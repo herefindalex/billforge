@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Checkbox, Descriptions, Form, Input, Result, Select, Space, Typography } from 'antd'
+import { Alert, Button, Card, Checkbox, Descriptions, Form, Input, Select, Space, Typography } from 'antd'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, HttpError, type Command, type Session } from '../../api/client'
 import { isNonNegativeInt64String } from '../../api/validation'
 import { useStoredCommandID } from '../commands/useStoredCommandID'
+import CommandReadRecovery from '../commands/CommandReadRecovery'
 
 const pendingKey = 'billforge:admin:create-quote:pending'
 type QuoteInput = { customer_id: string; plan_id?: string; contract_version_id?: string; cohort?: string; seats: string; change_subscription_id?: string; mode?: string; revision?: string }
@@ -114,7 +115,7 @@ export default function CreateQuote({ session }: { session: Session }) {
     </Card>
     {commandID && <Card title="命令結果" className="result-card">
       {command.isPending && <Typography.Text>正在查詢命令狀態…</Typography.Text>}
-      {command.isError && <Result status="error" title="命令狀態無法載入" extra={<Button onClick={() => void command.refetch()}>重試</Button>} />}
+      {command.isError && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); setQuoteKind('plan'); setChangeQuote(false); form.resetFields() }} />}
       {command.data && <Descriptions column={1} bordered size="small" items={[
         { key: 'id', label: '命令 ID', children: <Typography.Text copyable>{command.data.id}</Typography.Text> },
         { key: 'status', label: '狀態', children: command.data.status },
@@ -124,11 +125,11 @@ export default function CreateQuote({ session }: { session: Session }) {
         { key: 'binding', label: '變更綁定 Fingerprint', children: command.data.result_refs?.binding_fingerprint ? <Typography.Text copyable>{command.data.result_refs.binding_fingerprint}</Typography.Text> : '非變更報價' },
         { key: 'error', label: '錯誤', children: command.data.error_code || '無' },
       ]} />}
-      {command.data?.status === 'succeeded' && command.data.result_refs?.mode === 'next_period' && <Button className="result-card" onClick={() => navigate(`/subscriptions/${encodeURIComponent(command.data!.result_refs!.change_subscription_id)}/schedule-plan`, { state: { quote_id: command.data!.result_refs!.quote_id, fingerprint: command.data!.result_refs!.binding_fingerprint } })}>前往排程下期變更</Button>}
-      {command.data?.status === 'succeeded' && command.data.result_refs?.mode === 'immediate' && <Button className="result-card" onClick={() => navigate(`/subscriptions/${encodeURIComponent(command.data!.result_refs!.change_subscription_id)}/upgrade`, { state: { quote_id: command.data!.result_refs!.quote_id, fingerprint: command.data!.result_refs!.binding_fingerprint } })}>前往立即升級</Button>}
-      {command.data?.status === 'succeeded' && command.data.result_refs?.quote_id && !command.data.result_refs?.mode && <Button className="result-card" onClick={() => navigate(`/quotes/${encodeURIComponent(command.data!.result_refs!.quote_id)}/accept`)}>前往接受報價</Button>}
+      {command.data?.status === 'succeeded' && command.data.result_refs?.mode === 'next_period' && <Button className="result-card" disabled={command.isError} onClick={() => navigate(`/subscriptions/${encodeURIComponent(command.data!.result_refs!.change_subscription_id)}/schedule-plan`, { state: { quote_id: command.data!.result_refs!.quote_id, fingerprint: command.data!.result_refs!.binding_fingerprint } })}>前往排程下期變更</Button>}
+      {command.data?.status === 'succeeded' && command.data.result_refs?.mode === 'immediate' && <Button className="result-card" disabled={command.isError} onClick={() => navigate(`/subscriptions/${encodeURIComponent(command.data!.result_refs!.change_subscription_id)}/upgrade`, { state: { quote_id: command.data!.result_refs!.quote_id, fingerprint: command.data!.result_refs!.binding_fingerprint } })}>前往立即升級</Button>}
+      {command.data?.status === 'succeeded' && command.data.result_refs?.quote_id && !command.data.result_refs?.mode && <Button className="result-card" disabled={command.isError} onClick={() => navigate(`/quotes/${encodeURIComponent(command.data!.result_refs!.quote_id)}/accept`)}>前往接受報價</Button>}
       <Button className="result-card" href={`/admin/commands/${encodeURIComponent(commandID)}`}>開啟命令頁面</Button>
-      {(command.data?.status === 'succeeded' || command.data?.status === 'failed') && <Button className="result-card" onClick={() => { setCommandID(null); setQuoteKind('plan'); setChangeQuote(false); form.resetFields() }}>建立另一筆報價</Button>}
+      {(command.data?.status === 'succeeded' || command.data?.status === 'failed') && <Button className="result-card" disabled={command.isError} onClick={() => { setCommandID(null); setQuoteKind('plan'); setChangeQuote(false); form.resetFields() }}>建立另一筆報價</Button>}
     </Card>}
   </div>
 }

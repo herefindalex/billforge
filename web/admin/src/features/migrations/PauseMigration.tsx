@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, App as AntApp, Button, Card, Descriptions, Result, Skeleton, Space, Typography } from 'antd'
+import { Alert, App as AntApp, Button, Card, Descriptions, Skeleton, Space, Typography } from 'antd'
 import { useParams } from 'react-router-dom'
 import { api, type Command, type Session } from '../../api/client'
 import ReadFailureWithRecovery from '../../components/ReadFailureWithRecovery'
 import { useStoredCommandID } from '../commands/useStoredCommandID'
+import CommandReadRecovery, { isCommandNotFound } from '../commands/CommandReadRecovery'
 
 function storedKey(id: string) { return `billforge:admin:pause-migration:${id}` }
 
@@ -63,7 +64,7 @@ export default function PauseMigration({ session }: { session: Session }) {
     {submit.isError && <Alert type="error" showIcon className="result-card" message="命令結果尚未確認" description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card">
       {command.isPending && <Typography.Text>正在查詢命令狀態…</Typography.Text>}
-      {command.isError && !command.data && <Result status="error" title="命令狀態無法載入" extra={<Button onClick={() => void command.refetch()}>重試</Button>} />}
+      {command.isError && (!command.data || isCommandNotFound(command.error)) && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); void migration.refetch() }} />}
       {command.isError && command.data && <Alert type="warning" showIcon message="無法更新命令狀態；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(command.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void command.refetch()}>重試</Button></Space>} />}
       {command.data && <Descriptions column={1} bordered size="small" items={[
         { key: 'id', label: '命令 ID', children: <Typography.Text copyable>{command.data.id}</Typography.Text> },
@@ -71,7 +72,7 @@ export default function PauseMigration({ session }: { session: Session }) {
         { key: 'error', label: '錯誤', children: command.data.error_code || '無' },
       ]} />}
       <Button className="result-card" href={`/admin/commands/${encodeURIComponent(commandID)}`}>開啟命令頁面</Button>
-      {command.data?.status === 'failed' && migration.data.Status === 'active' && <Button className="result-card" onClick={() => { setCommandID(null); void migration.refetch() }}>依最新批次狀態重新操作</Button>}
+      {command.data?.status === 'failed' && migration.data.Status === 'active' && <Button className="result-card" disabled={command.isError} onClick={() => { setCommandID(null); void migration.refetch() }}>依最新批次狀態重新操作</Button>}
     </Card>}
   </div>
 }

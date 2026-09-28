@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Result, Select, Space, Typography } from 'antd'
+import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Select, Space, Typography } from 'antd'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, HttpError, type Command, type Preview, type Session } from '../api/client'
 import { isExactAdminUTC, isNonNegativeInt64String, minimumUpfrontFits } from '../api/validation'
 import { useStoredCommandID } from '../features/commands/useStoredCommandID'
+import CommandReadRecovery, { isCommandNotFound } from '../features/commands/CommandReadRecovery'
 import Money from './Money'
 import ExternalOperationOutcome from './ExternalOperationOutcome'
 import PreviewWarnings from './PreviewWarnings'
@@ -223,7 +224,7 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
     {submit.isError && command.data?.status !== 'succeeded' && command.data?.status !== 'failed' && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422 || submit.error.code === 'IDEMPOTENCY_CONFLICT') ? '命令未被接受，請檢查輸入' : '命令結果尚未確認'} description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card" extra={<Button onClick={() => void command.refetch()} loading={command.isFetching}>更新</Button>}>
       {command.isPending && <Typography.Text>正在查詢命令狀態…</Typography.Text>}
-      {command.isError && !command.data && <Result status="error" title="命令狀態無法載入" extra={<Button onClick={() => void command.refetch()}>重試</Button>} />}
+      {command.isError && (!command.data || isCommandNotFound(command.error)) && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); setPreview(null); setStalePreview(null); setPayload(null); setPreviewInvalidated(false); submit.reset(); resume.reset(); createPreview.reset(); form.resetFields() }} />}
       {command.isError && command.data && <Alert type="warning" showIcon className="result-card" message="無法更新命令狀態；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(command.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void command.refetch()}>重試</Button></Space>} />}
       {command.data && <ExternalOperationOutcome command={command.data} />}
       {command.data && <Descriptions column={1} bordered size="small" items={[

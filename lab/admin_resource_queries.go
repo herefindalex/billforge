@@ -22,7 +22,7 @@ type adminResourceSpec struct {
 // here, never in a request payload.
 var adminResourceFilterColumns = map[string]map[string]string{
 	"prices":              {"id_prefix": "id", "plan_id": "plan_id"},
-	"catalog-selections":  {"plan_id": "plan_id", "cohort": "cohort"},
+	"catalog-selections":  {"plan_id": "plan_id", "cohort": "cohort", "price_version_id": "price_version_id"},
 	"price-migrations":    {"id_prefix": "id", "cohort": "cohort", "status": "status", "created_from": "created_at", "created_before": "created_at"},
 	"contracts":           {"id_prefix": "id", "customer_id": "customer_id"},
 	"usage-events":        {"subscription_id": "subscription_id", "period_index": "period_index", "source": "source"},

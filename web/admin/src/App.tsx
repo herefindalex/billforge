@@ -31,6 +31,7 @@ import AccountMigrationHistory from './features/migrations/AccountMigrationHisto
 import CreatePayment from './features/payments/CreatePayment'
 import RetryPayment from './features/payments/RetryPayment'
 import ExternalOperationDetail from './features/payments/ExternalOperationDetail'
+import PriceVersionDetail from './features/catalog/PriceVersionDetail'
 import ActionForm, { type ActionConfig } from './components/ActionForm'
 import Money from './components/Money'
 
@@ -60,7 +61,7 @@ const resourceRoute: Record<string, string> = {
 
 const resourceFilterKeys: Record<string, string[]> = {
   prices: ['id_prefix', 'plan_id'],
-  'catalog-selections': ['plan_id', 'cohort'],
+  'catalog-selections': ['plan_id', 'cohort', 'price_version_id'],
   'price-migrations': ['id_prefix', 'cohort', 'status', 'created_from', 'created_before'],
   contracts: ['id_prefix', 'customer_id'],
  'usage-events': ['subscription_id', 'period_index', 'source'],
@@ -82,7 +83,8 @@ const resourceFilterKeys: Record<string, string[]> = {
 const resourceFilterLabels: Record<string, string> = {
   id_prefix: 'ID 前綴', plan_id: '方案 ID', cohort: 'Cohort', customer_id: '客戶 ID',
  subscription_id: '訂閱 ID', invoice_id: '帳單 ID', source_invoice_id: '來源帳單 ID',
- period_index: '帳期序號',
+  period_index: '帳期序號',
+  price_version_id: '價格版本 ID',
   grant_id: 'Credit ID', legacy_account_id: '舊帳戶 ID', object_id: '對象 ID',
   status: '狀態', kind: '種類', source: '來源',
   created_from: '建立時間起（UTC）', created_before: '建立時間前（UTC）',
@@ -533,6 +535,7 @@ function StateTable({ rows, name, total, observedAt, stale, refreshing, onRefres
     },
   }))
   columns.push({ title: '', key: 'detail', width: 170, render: (_, record) => <Space>
+        {name === 'Prices' && typeof record.ID === 'string' && <Button type="link" onClick={() => navigate(`/catalog/prices/${encodeURIComponent(record.ID as string)}`)}>開啟版本</Button>}
         {(name === 'Payments' || name === 'Refunds') && typeof record.ID === 'string' && <Button type="link" onClick={() => navigate(`/${name === 'Payments' ? 'payments' : 'refunds'}/${encodeURIComponent(record.ID as string)}`)}>開啟操作</Button>}
         <Button type="link" onClick={() => name === 'Subscriptions' && typeof record.ID === 'string' ? navigate(`/subscriptions/${encodeURIComponent(record.ID)}`) : name === 'Customers' && typeof record.ID === 'string' ? navigate(`/customers/${encodeURIComponent(record.ID)}`) : name === 'Invoices' && typeof record.ID === 'string' ? navigate(`/invoices/${encodeURIComponent(record.ID)}`) : name === 'Credits' && typeof record.ID === 'string' ? navigate(`/credits/${encodeURIComponent(record.ID)}`) : name === 'Discrepancies' && typeof record.ID === 'string' ? navigate(`/discrepancies/${encodeURIComponent(record.ID)}`) : name === 'ReconciliationRuns' && typeof record.ID === 'string' ? navigate(`/reconciliation-runs/${encodeURIComponent(record.ID)}`) : name === 'AccountMigrations' && typeof record.LegacyAccountID === 'string' ? navigate(`/account-migrations/${encodeURIComponent(record.LegacyAccountID)}`) : name === 'PriceMigrations' && typeof record.ID === 'string' ? navigate(`/price-migrations/${encodeURIComponent(record.ID)}`) : name === 'UsagePeriods' && typeof record.SubscriptionID === 'string' && record.PeriodIndex !== undefined ? navigate(`/usage-periods/${encodeURIComponent(record.SubscriptionID)}/${encodeURIComponent(String(record.PeriodIndex))}`) : setSelectedKey(resourceRowKey(name, record))}>詳情</Button>
     {name === 'Quotes' && !record.Accepted && typeof record.ID === 'string' && <Button type="link" onClick={() => navigate(`/quotes/${encodeURIComponent(record.ID as string)}/accept`)}>接受</Button>}
@@ -729,7 +732,9 @@ function AdminShell({ session, onLogout }: { session: Session; onLogout: () => v
           <Route path="/refunds" element={<ResourceView name="Refunds" path="refunds" />} />
           <Route path="/refunds/:id" element={<ExternalOperationDetail kind="refund" />} />
           <Route path="/catalog/prices" element={<ResourceView name="Prices" path="prices" />} />
+          <Route path="/catalog/prices/:id" element={<PriceVersionDetail />} />
           <Route path="/catalog/meters" element={<ResourceView name="Meters" path="meters" />} />
+          <Route path="/catalog-selections" element={<ResourceView name="CatalogSelections" path="catalog-selections" />} />
           <Route path="/price-migrations" element={<ResourceView name="PriceMigrations" path="price-migrations" />} />
           <Route path="/contracts" element={<ResourceView name="Contracts" path="contracts" />} />
           <Route path="/usage" element={<ResourceView name="UsageEvents" path="usage-events" />} />

@@ -23,6 +23,22 @@ export type ExternalOperationDetail = {
  observed_at: string
 }
 
+export type PriceVersionDetail = {
+ ID: string
+ PlanID: string
+ Version: string
+ Currency: string
+ FixedMinor: string
+ Checksum: string
+ PublicationState: 'draft' | 'published'
+ PublishedAt: string
+ EffectiveFrom: string
+ EffectiveTo: string | null
+ SelectionCount: string
+ Components: { Code: string; Kind: string; AmountMinor: string; Quantity: string; RateNum: string; RateDen: string; MeterID: string }[]
+ ComponentsTruncated: boolean
+}
+
 export type LabClock = { mode: 'real' | 'fixed'; value_utc?: string; revision: number; business_time: string }
 export type LabFaultTicket = { id: string; operation_kind: string; operation_id: string; mode: string; claimed_command_id?: string; created_at: string }
 
@@ -399,7 +415,8 @@ export const api = {
     }
     return request<ResourcePage>(`/${name}?${params.toString()}`)
   },
-  quote: (id: string) => request<QuoteDetail>(`/quotes/${encodeURIComponent(id)}`),
+ quote: (id: string) => request<QuoteDetail>(`/quotes/${encodeURIComponent(id)}`),
+ price: (id: string) => request<{ price: PriceVersionDetail; observed_at: string }>(`/prices/${encodeURIComponent(id)}`),
   subscription: (id: string) => request<SubscriptionDetail>(`/subscriptions/${encodeURIComponent(id)}`),
  subscriptionPeriods: (id: string, cursor = '') => request<CursorPage<SubscriptionPeriod>>(`/subscriptions/${encodeURIComponent(id)}/periods?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
  usagePeriod: (id: string, index: string) => request<{ period: UsagePeriodDetail; observed_at: string }>(`/usage-periods/${encodeURIComponent(id)}/${encodeURIComponent(index)}`),

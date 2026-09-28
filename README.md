@@ -4,6 +4,10 @@ English | [Traditional Chinese](README.zh-TW.md) | [Simplified Chinese](README.z
 
 Billforge is a local lab for testing commerce system correctness. It uses Go and two separate SQLite databases to exercise price versions, subscriptions and contracts, payments and entitlements, usage closing, adjustments, refunds, reconciliation, and account migration. See the [platform plan](docs/commerce-lab-plan.md) and [A–D design](docs/design/README.md) for the design, and the [MVP completion tracker](docs/implementation/mvp-completion-tracker.md) for implementation evidence.
 
+## Current status
+
+The local CLI, API, and React + Ant Design Web Admin are available. The Web Admin A01–A30 acceptance matrix is still in progress; its [acceptance record](docs/implementation/web-admin.md) distinguishes verified cases from remaining checks.
+
 ## What this lab checks
 
 - Published prices and contracts retain their versions so later changes do not silently rewrite existing obligations.
@@ -62,7 +66,5 @@ The contracts list opens a contract version detail page with its published terms
 To limit administrator permissions, optionally set `BILLFORGE_ADMIN_CAPABILITIES=read` or provide other comma-separated capabilities. Without this setting, the local administrator has full permissions. Restart to apply capability changes. Commands being recovered are re-evaluated against the new permissions and any existing external obligations; see the [Web Admin implementation record](docs/implementation/web-admin.md).
 
 To embed frontend assets in the binary, build the frontend first and then run the `go build -tags admin_ui` command above. Without that tag, the development server reads built assets from `cmd/lab/adminassets/dist`. See the [Web Admin guide and acceptance record](docs/implementation/web-admin.md) for operations, upgrades, and recovery.
-
-The A01–A30 Web Admin acceptance matrix and its remaining checks are tracked in the [Web Admin acceptance record](docs/implementation/web-admin.md).
 
 This project does not cover real payments, taxes, multiple currencies, a production general ledger, or public deployment.

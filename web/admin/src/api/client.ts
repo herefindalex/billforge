@@ -14,8 +14,13 @@ export type Session = {
 }
 
 export type Overview = {
-  observed_at: string
-  counts: Record<string, number>
+ observed_at: string
+ counts: Record<string, number>
+}
+
+export type ExternalOperationDetail = {
+ operation: { id: string; status: string; outbox_status: string; amount_minor: string; currency: string }
+ observed_at: string
 }
 
 export type LabClock = { mode: 'real' | 'fixed'; value_utc?: string; revision: number; business_time: string }
@@ -421,7 +426,8 @@ export const api = {
     }),
   preview: (id: string) => request<Preview>(`/previews/${encodeURIComponent(id)}`),
   commands: (cursor = '') => request<{ items: Command[]; next_cursor: string }>(`/commands?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
-  command: (id: string) => request<Command>(`/commands/${encodeURIComponent(id)}`),
+ command: (id: string) => request<Command>(`/commands/${encodeURIComponent(id)}`),
+ externalOperation: (actionID: 'C09' | 'C16', id: string) => request<ExternalOperationDetail>(`/${actionID === 'C09' ? 'payments' : 'refunds'}/${encodeURIComponent(id)}`),
   resumeCommand: (csrfToken: string, id: string) => request<Command>(`/commands/${encodeURIComponent(id)}/resume`, {
     method: 'POST', headers: { 'X-CSRF-Token': csrfToken }, body: JSON.stringify({}),
   }),

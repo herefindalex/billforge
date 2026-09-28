@@ -916,6 +916,48 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     }
   })
 
+  test('a second tab cannot complete the same payment dispatch', async ({ page }) => {
+    await signIn(page)
+    const { operationID } = await createAcceptedSubscription(page, 'same-payment-dispatch-' + randomUUID(), 'basic')
+    const providerKey = scalar('SELECT provider_key FROM payment_operations WHERE id=?', operationID)
+    const other = await page.context().newPage()
+    try {
+      await page.goto(app.baseURL + '/admin/payments/' + operationID + '/dispatch')
+      await other.goto(app.baseURL + '/admin/payments/' + operationID + '/dispatch')
+      await page.getByRole('button', { name: '建立預覽' }).click()
+      await other.getByRole('button', { name: '建立預覽' }).click()
+      await expect(other.getByRole('button', { name: '確認送出付款' })).toBeVisible()
+
+      await page.getByRole('button', { name: '確認送出付款' }).last().click()
+      await page.getByRole('dialog').getByRole('button', { name: '確認送出付款' }).click()
+      await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+
+      const staleResponse = other.waitForResponse((response) =>
+        response.url().endsWith('/admin/api/commands') &&
+        response.request().method() === 'POST' &&
+        (response.request().postData() ?? '').includes('"action_id":"C09"'),
+      )
+      await other.getByRole('button', { name: '確認送出付款' }).last().click()
+      await other.getByRole('dialog').getByRole('button', { name: '確認送出付款' }).click()
+      expect((await staleResponse).status()).toBe(409)
+      await expect(other.getByText('原預覽已失效', { exact: true })).toBeVisible()
+      await expect(other.getByText('無法建立預覽')).toBeVisible()
+      await expect(other.getByRole('button', { name: '確認送出付款' })).toHaveCount(0)
+      await expect(other.getByText('操作狀態已變更，原預覽不可再送出')).toBeVisible()
+      await expect(other.getByText('created → succeeded')).toBeVisible()
+      await expect(other.getByText('pending → done')).toBeVisible()
+      await expect(other.getByText('觀測時間')).toBeVisible()
+
+      expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C09' AND target_id=? AND status='succeeded'", operationID)).toBe(1)
+      expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C09' AND target_id=? AND status='failed' AND error_code='PREVIEW_STALE'", operationID)).toBe(1)
+      expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C09' AND c.target_id=?", operationID)).toBe(1)
+      expect(count('SELECT COUNT(*) FROM allocations WHERE operation_id=?', operationID)).toBe(1)
+      expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', providerKey, app.providerPath)).toBe('1')
+    } finally {
+      await other.close()
+    }
+  })
+
   test('dispatching a selected payment does not send an earlier queued operation', async ({ page }) => {
     await signIn(page)
     const first = await createAcceptedSubscription(page, `queued-payment-first-${randomUUID()}`, 'basic')
@@ -2537,6 +2579,65 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await expect(amount('退款保留', 'USD 0.00')).toBeVisible()
     await expect(amount('已退款', 'USD 4.00')).toBeVisible()
     await expect(amount('可用額度', 'USD 6.00')).toBeVisible()
+  })
+
+  test('a second tab cannot complete the same refund dispatch', async ({ page }) => {
+    await signIn(page)
+    const { invoiceID } = await createPaidSubscription(page, 'same-refund-dispatch-' + randomUUID(), 'basic')
+    await page.goto(app.baseURL + '/admin/invoices/' + invoiceID + '/reductions/new')
+    await page.getByLabel('減額（最小貨幣單位）', { exact: true }).fill('1000')
+    await page.getByLabel('減額理由', { exact: true }).fill('duplicate dispatch check')
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await page.getByRole('button', { name: '確認減額' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認減額' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const grantID = scalar('SELECT id FROM credit_grants WHERE source_invoice_id=?', invoiceID)
+
+    await page.goto(app.baseURL + '/admin/credits/' + grantID + '/refunds/new')
+    await page.getByLabel('退款金額（最小貨幣單位）', { exact: true }).fill('400')
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await page.getByRole('button', { name: '確認預留退款' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認預留退款' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const refundID = scalar('SELECT id FROM refund_operations WHERE grant_id=?', grantID)
+    const providerKey = scalar('SELECT provider_key FROM refund_operations WHERE id=?', refundID)
+
+    const other = await page.context().newPage()
+    try {
+      await page.goto(app.baseURL + '/admin/refunds/' + refundID + '/dispatch')
+      await other.goto(app.baseURL + '/admin/refunds/' + refundID + '/dispatch')
+      await page.getByRole('button', { name: '建立預覽' }).click()
+      await other.getByRole('button', { name: '建立預覽' }).click()
+      await expect(other.getByRole('button', { name: '確認送出退款' })).toBeVisible()
+
+      await page.getByRole('button', { name: '確認送出退款' }).last().click()
+      await page.getByRole('dialog').getByRole('button', { name: '確認送出退款' }).click()
+      await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+
+      const staleResponse = other.waitForResponse((response) =>
+        response.url().endsWith('/admin/api/commands') &&
+        response.request().method() === 'POST' &&
+        (response.request().postData() ?? '').includes('"action_id":"C16"'),
+      )
+      await other.getByRole('button', { name: '確認送出退款' }).last().click()
+      await other.getByRole('dialog').getByRole('button', { name: '確認送出退款' }).click()
+      expect((await staleResponse).status()).toBe(409)
+      await expect(other.getByText('原預覽已失效', { exact: true })).toBeVisible()
+      await expect(other.getByText('無法建立預覽')).toBeVisible()
+      await expect(other.getByRole('button', { name: '確認送出退款' })).toHaveCount(0)
+      await expect(other.getByText('操作狀態已變更，原預覽不可再送出')).toBeVisible()
+      await expect(other.getByText('created → succeeded')).toBeVisible()
+      await expect(other.getByText('pending → done')).toBeVisible()
+      await expect(other.getByText('觀測時間')).toBeVisible()
+
+      expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C16' AND target_id=? AND status='succeeded'", refundID)).toBe(1)
+      expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C16' AND target_id=? AND status='failed' AND error_code='PREVIEW_STALE'", refundID)).toBe(1)
+      expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C16' AND c.target_id=?", refundID)).toBe(1)
+      expect(scalar('SELECT status FROM refund_operations WHERE id=?', refundID)).toBe('succeeded')
+      expect(scalar('SELECT COUNT(*) FROM refunds WHERE provider_key=?', providerKey, app.providerPath)).toBe('1')
+    } finally {
+      await other.close()
+    }
   })
 
   test('dispatching a selected refund does not send an earlier queued refund', async ({ page }) => {

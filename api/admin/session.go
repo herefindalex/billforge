@@ -138,6 +138,8 @@ func newWithClock(l *lab.Lab, cfg Config, now func() time.Time) (http.Handler, e
 	mux.HandleFunc("GET /admin/api/subscriptions/{id}/entitlement", s.protected(s.subscriptionEntitlement))
 	mux.HandleFunc("GET /admin/api/invoices/{id}", s.protected(s.invoiceDetail))
 	mux.HandleFunc("GET /admin/api/credits/{id}", s.protected(s.creditDetail))
+	mux.HandleFunc("GET /admin/api/payments/{id}", s.protected(s.paymentDetail))
+	mux.HandleFunc("GET /admin/api/refunds/{id}", s.protected(s.refundDetail))
 	mux.HandleFunc("GET /admin/api/usage-periods/{id}/{index}", s.protected(s.usagePeriodDetail))
 	mux.HandleFunc("GET /admin/api/usage-periods/{id}/{index}/ratings", s.protected(s.usagePeriodRatings))
 	mux.HandleFunc("GET /admin/api/invoices/{id}/history/{kind}", s.protected(s.invoiceHistory))

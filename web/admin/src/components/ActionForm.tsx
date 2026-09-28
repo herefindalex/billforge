@@ -91,6 +91,13 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
       setPreviewInvalidated(false)
     },
   })
+  const externalAction = config.actionID === 'C09' || config.actionID === 'C16'
+  const currentOperation = useQuery({
+    queryKey: ['external-operation', config.actionID, id, stalePreview?.preview_id],
+    queryFn: () => api.externalOperation(config.actionID as 'C09' | 'C16', id),
+    enabled: externalAction && stalePreview !== null && createPreview.isError,
+    retry: false,
+  })
   const submit = useMutation({
     mutationFn: (intent: Pending) => api.submitCommand(session.csrf_token, intent.key, {
       action_id: config.actionID, target_id: id, preview_id: intent.previewID, payload: intent.payload,
@@ -206,6 +213,19 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
     {previewInvalidated && !preview && !pending && !commandID && <Alert type="warning" showIcon className="result-card" message="輸入已變更，請重新建立預覽" />}
     {pending && !commandID && <Alert type="warning" showIcon className="result-card" message="原命令的結果尚未確認" description={<Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>用原 request key 查詢</Button>} />}
     {createPreview.isError && !previewInvalidated && <Alert type="error" showIcon className="result-card" message="無法建立預覽" description={createPreview.error.message} />}
+    {externalAction && stalePreview && !preview && createPreview.isError && <Card title="目前操作狀態" className="result-card" extra={<Button onClick={() => void currentOperation.refetch()} loading={currentOperation.isFetching}>更新</Button>}>
+      {currentOperation.isPending && <Typography.Text>正在查詢目前狀態…</Typography.Text>}
+      {currentOperation.isError && <Alert type="error" showIcon message="無法讀取目前狀態" description={<Space direction="vertical"><span>{currentOperation.error.message}</span><Button onClick={() => void currentOperation.refetch()}>重試</Button></Space>} />}
+      {currentOperation.data && <>
+        <Alert type="warning" showIcon message="操作狀態已變更，原預覽不可再送出" />
+        <Descriptions column={1} bordered size="small" items={[
+          { key: 'status', label: '操作狀態', children: `${stalePreview.source_versions.status ?? '未知'} → ${currentOperation.data.operation.status}` },
+          { key: 'outbox', label: '派送狀態', children: `${stalePreview.source_versions.outbox_status ?? '未知'} → ${currentOperation.data.operation.outbox_status}` },
+          { key: 'amount', label: '金額', children: <Space><span>原先：{displayValue('amount_minor', stalePreview.impact.amount_minor, stalePreview.impact.currency)}</span><span>現在：{displayValue('amount_minor', currentOperation.data.operation.amount_minor, currentOperation.data.operation.currency)}</span></Space> },
+          { key: 'observed', label: '觀測時間', children: new Date(currentOperation.data.observed_at).toLocaleString() },
+        ]} />
+      </>}
+    </Card>}
     {preview && <Card title="操作預覽" className="result-card">
       <PreviewWarnings preview={preview} expired={previewExpired} />
       {stalePreview && <Alert type="warning" showIcon message="原預覽已失效，請檢查新預覽並再次確認" description={

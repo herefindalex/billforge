@@ -119,6 +119,33 @@ func (l *Lab) adminExternalStatus(ctx context.Context, actionID, targetID string
 	return status, err
 }
 
+type AdminExternalOperationState struct {
+	ID           string `json:"id"`
+	Status       string `json:"status"`
+	OutboxStatus string `json:"outbox_status"`
+	AmountMinor  string `json:"amount_minor"`
+	Currency     string `json:"currency"`
+}
+
+func (l *Lab) AdminExternalOperationState(ctx context.Context, actionID, targetID string) (AdminExternalOperationState, error) {
+	var state AdminExternalOperationState
+	var amount int64
+	var query string
+	switch actionID {
+	case "C09":
+		query = `SELECT o.id,o.status,b.status,o.amount_minor,o.currency FROM payment_operations o JOIN outbox b ON b.object_id=o.id AND b.kind='capture' WHERE o.id=?`
+	case "C16":
+		query = `SELECT r.id,r.status,b.status,r.amount_minor,r.currency FROM refund_operations r JOIN outbox b ON b.object_id=r.id AND b.kind='refund' WHERE r.id=?`
+	default:
+		return state, ErrAdminUnsupportedAction
+	}
+	if err := l.db.QueryRowContext(ctx, query, targetID).Scan(&state.ID, &state.Status, &state.OutboxStatus, &amount, &state.Currency); err != nil {
+		return AdminExternalOperationState{}, err
+	}
+	state.AmountMinor = strconv.FormatInt(amount, 10)
+	return state, nil
+}
+
 func (l *Lab) adminExternalDispatchOwner(ctx context.Context, actionID, targetID string) (string, error) {
 	var owner string
 	err := l.db.QueryRowContext(ctx, `SELECT command_id FROM admin_external_dispatch_claims WHERE action_id=? AND target_id=?`, actionID, targetID).Scan(&owner)

@@ -22,6 +22,14 @@ pnpm --dir web/admin test:e2e
 go build -tags admin_ui -o /tmp/billforge-admin ./cmd/lab
 ```
 
+如需确认 C01–C49 每项管理操作都由浏览器提交，并生成成功的命令回执，请在运行端到端测试时记录验收文件：
+
+```sh
+audit_file="$(mktemp /tmp/billforge-action-cases.XXXXXX)"
+BILLFORGE_E2E_ACTION_CASE_AUDIT="$audit_file" pnpm --dir web/admin test:e2e
+node web/admin/e2e/audit-action-cases.mjs "$audit_file"
+```
+
 ## CLI 与本地 API
 
 ```sh

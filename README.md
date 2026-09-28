@@ -22,6 +22,14 @@ pnpm --dir web/admin test:e2e
 go build -tags admin_ui -o /tmp/billforge-admin ./cmd/lab
 ```
 
+To verify that every C01–C49 administrative action was submitted from the browser and produced a successful command receipt, run the end-to-end suite with an audit file:
+
+```sh
+audit_file="$(mktemp /tmp/billforge-action-cases.XXXXXX)"
+BILLFORGE_E2E_ACTION_CASE_AUDIT="$audit_file" pnpm --dir web/admin test:e2e
+node web/admin/e2e/audit-action-cases.mjs "$audit_file"
+```
+
 ## CLI and local API
 
 ```sh

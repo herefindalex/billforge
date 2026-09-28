@@ -3,15 +3,29 @@ import { randomUUID } from 'node:crypto'
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page, type Request, type Route } from '@playwright/test'
 import { startLocalAdmin, type LocalAdmin } from './server'
 
 test.describe.serial('local Web Admin with real SQLite and fake provider', () => {
   let app: LocalAdmin
   let lastAuditedCommandRowID = 0
+  const browserActions = new Set<string>()
 
   test.beforeAll(async () => { app = await startLocalAdmin() })
   test.afterAll(async () => { await app?.stop() })
+  test.beforeEach(async ({ page, context }) => {
+    if (!process.env.BILLFORGE_E2E_ACTION_CASE_AUDIT) return
+    browserActions.clear()
+    const observe = (request: Request) => {
+      if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/admin/api/commands') return
+      try {
+        const payload = request.postDataJSON() as { action_id?: unknown }
+        if (typeof payload.action_id === 'string' && /^C\d{2}$/.test(payload.action_id)) browserActions.add(payload.action_id)
+      } catch { /* malformed request; the command response test covers its rejection */ }
+    }
+    page.on('request', observe)
+    context.on('page', (newPage) => newPage.on('request', observe))
+  })
   test.afterEach(async ({}, testInfo) => {
     const auditPath = process.env.BILLFORGE_E2E_ACTION_CASE_AUDIT
     if (!auditPath) return
@@ -21,7 +35,7 @@ rows = list(db.execute('SELECT c.rowid,c.action_id,c.status,EXISTS(SELECT 1 FROM
 print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { encoding: 'utf8' })
     const rows = JSON.parse(output) as [number, string, string, number][]
     if (rows.length > 0) lastAuditedCommandRowID = rows[rows.length - 1][0]
-    appendFileSync(auditPath, JSON.stringify({ test: testInfo.title, commands: rows.map(([, action, status, receipt]) => ({ action, status, receipt: receipt === 1 })) }) + '\n')
+    appendFileSync(auditPath, JSON.stringify({ test: testInfo.title, browser_actions: [...browserActions].sort(), commands: rows.map(([, action, status, receipt]) => ({ action, status, receipt: receipt === 1 })) }) + '\n')
   })
 
   async function signIn(page: Page) {

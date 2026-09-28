@@ -34,7 +34,7 @@ func (l *Lab) PublishProPrice(ctx context.Context, spec ProPriceSpec) (PriceTerm
 }
 
 func (l *Lab) publishProPriceTx(ctx context.Context, tx *sql.Tx, at time.Time, spec ProPriceSpec) (PriceTerms, error) {
-	if spec.ID == "" || spec.Version <= 0 || spec.SeatMinor <= 0 || !minimumUpfrontFits(spec.FixedMinor, spec.SeatMinor) || spec.IncludedTasks < 0 || spec.UsageRateNum < 0 || spec.UsageRateDen <= 0 || spec.EffectiveFrom.IsZero() {
+	if spec.ID == "" || spec.Version <= 0 || spec.SeatMinor <= 0 || !minimumUpfrontFits(spec.FixedMinor, spec.SeatMinor) || spec.IncludedTasks < 0 || spec.UsageRateNum < 0 || spec.UsageRateDen <= 0 || !unixNanoTimeFits(spec.EffectiveFrom) || !unixNanoTimeFits(at) {
 		return PriceTerms{}, ErrConflict
 	}
 	checksum := hash(spec.ID, spec.Version, "USD", spec.FixedMinor, "seats", spec.SeatMinor, "tasks", spec.IncludedTasks, spec.UsageRateNum, spec.UsageRateDen, spec.EffectiveFrom.UTC().UnixNano())
@@ -83,7 +83,7 @@ func (l *Lab) SelectCatalogPrice(ctx context.Context, planID, cohort string, eff
 }
 
 func (l *Lab) selectCatalogPriceTx(ctx context.Context, tx *sql.Tx, planID, cohort string, effectiveAt time.Time, priceVersionID string) error {
-	if planID == "" || cohort == "" || priceVersionID == "" || effectiveAt.IsZero() {
+	if planID == "" || cohort == "" || priceVersionID == "" || !unixNanoTimeFits(effectiveAt) {
 		return ErrConflict
 	}
 	var pricePlan, state string

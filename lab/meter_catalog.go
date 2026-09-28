@@ -108,7 +108,7 @@ func (l *Lab) PublishMeteredPrice(ctx context.Context, spec MeteredPriceSpec) (P
 func (l *Lab) publishMeteredPriceTx(ctx context.Context, tx *sql.Tx, at time.Time, spec MeteredPriceSpec) (PriceTerms, error) {
 	if !catalogCode.MatchString(spec.ID) || !catalogCode.MatchString(spec.PlanID) || !catalogCode.MatchString(spec.MeterID) ||
 		spec.Version <= 0 || !minimumUpfrontFits(spec.FixedMinor, spec.SeatMinor) || spec.IncludedQuantity <= 0 ||
-		spec.UsageRateNum <= 0 || spec.UsageRateDen <= 0 || spec.EffectiveFrom.IsZero() {
+		spec.UsageRateNum <= 0 || spec.UsageRateDen <= 0 || !unixNanoTimeFits(spec.EffectiveFrom) || !unixNanoTimeFits(at) {
 		return PriceTerms{}, ErrConflict
 	}
 	var registered string

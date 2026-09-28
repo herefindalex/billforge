@@ -7,6 +7,10 @@ var (
 	maxUnixNanoTime = time.Unix(0, 1<<63-1).UTC()
 )
 
+func unixNanoTimeFits(at time.Time) bool {
+	return !at.Before(minUnixNanoTime) && !at.After(maxUnixNanoTime)
+}
+
 // quoteExpiryAt checks both timestamps before either is converted to the
 // int64 Unix-nanosecond representation used by the database and fingerprint.
 func quoteExpiryAt(at time.Time) (time.Time, error) {

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -139,7 +139,18 @@ export async function startLocalAdmin(options: {
     },
     async stop() {
       await shutdown()
-      rmSync(directory, { recursive: true, force: true })
+      try {
+        const auditPath = process.env.BILLFORGE_E2E_ACTION_AUDIT
+        if (auditPath) {
+          const result = spawnSync('python3', ['-c', `import json, sqlite3, sys
+db = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True)
+print(json.dumps([row[0] for row in db.execute('SELECT DISTINCT action_id FROM admin_commands ORDER BY action_id')]))`, commercePath], { encoding: 'utf8' })
+          if (result.status !== 0) throw new Error(`Could not inspect E2E action IDs: ${result.stderr || result.error?.message}`)
+          appendFileSync(auditPath, JSON.stringify({ actions: JSON.parse(result.stdout) }) + '\n')
+        }
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
     },
   }
 }

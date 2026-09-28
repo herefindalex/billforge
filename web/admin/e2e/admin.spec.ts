@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, readdirSync } from 'node:fs'
+import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page, type Route } from '@playwright/test'
@@ -8,9 +8,21 @@ import { startLocalAdmin, type LocalAdmin } from './server'
 
 test.describe.serial('local Web Admin with real SQLite and fake provider', () => {
   let app: LocalAdmin
+  let lastAuditedCommandRowID = 0
 
   test.beforeAll(async () => { app = await startLocalAdmin() })
   test.afterAll(async () => { await app?.stop() })
+  test.afterEach(async ({}, testInfo) => {
+    const auditPath = process.env.BILLFORGE_E2E_ACTION_CASE_AUDIT
+    if (!auditPath) return
+    const output = execFileSync('python3', ['-c', `import json, sqlite3, sys
+db = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True)
+rows = list(db.execute('SELECT c.rowid,c.action_id,c.status,EXISTS(SELECT 1 FROM admin_command_receipts r WHERE r.command_id=c.id) FROM admin_commands c WHERE c.rowid>? ORDER BY c.rowid', (int(sys.argv[2]),)))
+print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { encoding: 'utf8' })
+    const rows = JSON.parse(output) as [number, string, string, number][]
+    if (rows.length > 0) lastAuditedCommandRowID = rows[rows.length - 1][0]
+    appendFileSync(auditPath, JSON.stringify({ test: testInfo.title, commands: rows.map(([, action, status, receipt]) => ({ action, status, receipt: receipt === 1 })) }) + '\n')
+  })
 
   async function signIn(page: Page) {
     await page.goto(`${app.baseURL}/admin/login`)

@@ -4995,7 +4995,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(jobMembers).toContain(first.subscriptionID)
     expect(jobMembers).not.toContain(secondSubscriptionID)
     await page.goto(`${app.baseURL}/admin/jobs/${encodeURIComponent(jobID)}`)
-    await expect(page.getByText('批次工作', { exact: true })).toBeVisible()
+    await expect(page.getByRole('main').getByText('批次工作', { exact: true })).toBeVisible()
     await expect(page.getByText(`${previewMembers.length} / ${previewMembers.length}`, { exact: true })).toBeVisible()
     await page.reload()
     await expect(page.getByText(`${previewMembers.length} / ${previewMembers.length}`, { exact: true })).toBeVisible()

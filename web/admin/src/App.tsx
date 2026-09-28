@@ -13,6 +13,7 @@ import AcceptQuote from './features/quotes/AcceptQuote'
 import CommandList from './features/commands/CommandList'
 import CommandDetail from './features/commands/CommandDetail'
 import JobDetails from './features/jobs/JobDetails'
+import JobList from './features/jobs/JobList'
 import PauseMigration from './features/migrations/PauseMigration'
 import PriceMigrationDetail from './features/migrations/PriceMigrationDetail'
 import RecordUsage from './features/usage/RecordUsage'
@@ -703,7 +704,8 @@ function AdminShell({ session, onLogout }: { session: Session; onLogout: () => v
     { key: '/reconciliation-runs/new', label: '執行對帳' },
     { key: '/account-migrations/new', label: '連結既有帳戶' },
     { key: '/jobs/renewals', label: '到期續約' },
- { key: '/jobs/entitlement-refresh', label: '刷新權益' },
+    { key: '/jobs/entitlement-refresh', label: '刷新權益' },
+    { key: '/jobs', label: '批次工作' },
  { key: '/lab/controls', label: '實驗控制' },
     ...resources.map(([, label, path]) => ({ key: resourceRoute[path] ?? `/data/${path}`, label })),
     { key: '/commands', label: '管理命令' },
@@ -802,8 +804,9 @@ function AdminShell({ session, onLogout }: { session: Session; onLogout: () => v
           <Route path="/account-migrations/:id/switch-writer" element={<ActionForm session={session} config={switchWriterAction} />} />
           <Route path="/account-migrations/:id/stop" element={<ActionForm session={session} config={stopMigrationAction} />} />
           <Route path="/jobs/renewals" element={<ActionForm session={session} config={runRenewalsAction} />} />
- <Route path="/jobs/entitlement-refresh" element={<ActionForm session={session} config={refreshEntitlementsAction} />} />
- <Route path="/jobs/:id" element={<JobDetails />} />
+          <Route path="/jobs/entitlement-refresh" element={<ActionForm session={session} config={refreshEntitlementsAction} />} />
+          <Route path="/jobs" element={<JobList />} />
+          <Route path="/jobs/:id" element={<JobDetails />} />
  <Route path="/lab/controls" element={<LabControls />} />
  <Route path="/lab/clock" element={<ActionForm session={session} config={clockAction} />} />
  <Route path="/lab/payment-decisions/:id" element={<ActionForm session={session} config={paymentDecisionAction} />} />

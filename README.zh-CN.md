@@ -63,6 +63,8 @@ go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db
 
 合同列表可打开合同版本详情，查看已发布条款、相关报价与订阅。详情页的报价和订阅各最多显示 20 条；使用“查看全部报价”或“查看全部订阅”可打开按该合同版本筛选的分页列表。也可以从详情页创建已预填客户与合同版本的报价。
 
+“批次工作”页面列出近期工作、逐项计数和详情链接；游标分页可避免新工作插入后移动已读页面。
+
 如需限制管理员权限，可设置 `BILLFORGE_ADMIN_CAPABILITIES=read`，或提供其他以逗号分隔的权限。未设置时，本地管理员拥有完整权限。权限变更需要重启；恢复中的命令会根据新权限和现有外部义务重新判定，详见 [Web Admin 实现记录](docs/implementation/web-admin.md)。
 
 如需将前端资源嵌入二进制文件，先构建前端，再运行上方的 `go build -tags admin_ui`。不带此 tag 的开发运行会从 `cmd/lab/adminassets/dist` 读取构建产物。完整操作、升级与恢复流程见 [Web Admin 使用与验收记录](docs/implementation/web-admin.md)。

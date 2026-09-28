@@ -63,6 +63,8 @@ Open `http://127.0.0.1:8080/admin/`. The admin server binds only to an explicit 
 
 The contracts list opens a contract version detail page with its published terms, related quotes, and subscriptions. The detail page shows up to 20 related records in each section; its list buttons open paginated quotes and subscriptions filtered to that contract version. From the detail page, you can also start a quote with the customer and contract version already filled in.
 
+The **Batch jobs** page lists recent jobs with item counts and links to their detailed results. Its cursor pagination keeps earlier pages stable when new jobs are created.
+
 To limit administrator permissions, optionally set `BILLFORGE_ADMIN_CAPABILITIES=read` or provide other comma-separated capabilities. Without this setting, the local administrator has full permissions. Restart to apply capability changes. Commands being recovered are re-evaluated against the new permissions and any existing external obligations; see the [Web Admin implementation record](docs/implementation/web-admin.md).
 
 To embed frontend assets in the binary, build the frontend first and then run the `go build -tags admin_ui` command above. Without that tag, the development server reads built assets from `cmd/lab/adminassets/dist`. See the [Web Admin guide and acceptance record](docs/implementation/web-admin.md) for operations, upgrades, and recovery.

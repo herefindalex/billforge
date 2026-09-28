@@ -87,6 +87,7 @@ export type Command = {
 
 export type JobItem = { id: string; target_type: string; target_id: string; period_key: string; status: string; result_refs?: Record<string, unknown>; error_code?: string; updated_at: string }
 export type Job = { id: string; command_id: string; kind: string; status: string; created_at: string; updated_at: string; items: JobItem[] }
+export type JobSummary = { id: string; command_id: string; kind: string; status: string; created_at: string; updated_at: string; total_items: string; succeeded_items: string; attention_items: string }
 
 export type QuoteDetail = {
   ID: string
@@ -428,7 +429,8 @@ export const api = {
  overview: () => request<Overview>('/overview'),
  clock: () => request<LabClock>('/lab/clock'),
   faults: (cursor = '') => request<CursorPage<LabFaultTicket>>(`/lab/faults?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
- job: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}`),
+  job: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}`),
+  jobs: (cursor = '') => request<CursorPage<JobSummary>>(`/jobs?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
   resource: (name: string, cursor = '', filters: Record<string, string> = {}) => {
     const params = new URLSearchParams({ limit: '20' })
     if (cursor) params.set('cursor', cursor)

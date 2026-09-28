@@ -4,6 +4,12 @@ English | [Traditional Chinese](README.zh-TW.md) | [Simplified Chinese](README.z
 
 Billforge is a local lab for testing commerce system correctness. It uses Go and two separate SQLite databases to exercise price versions, subscriptions and contracts, payments and entitlements, usage closing, adjustments, refunds, reconciliation, and account migration. See the [platform plan](docs/commerce-lab-plan.md) and [A–D design](docs/design/README.md) for the design, and the [MVP completion tracker](docs/implementation/mvp-completion-tracker.md) for implementation evidence.
 
+## What this lab checks
+
+- Published prices and contracts retain their versions so later changes do not silently rewrite existing obligations.
+- Administrative changes use previews, source version checks, idempotency keys, and command receipts. When a payment or refund dispatch preview becomes stale, the Web Admin shows the previous preview alongside the current operation state.
+- The commerce database and fake provider database are separate, allowing retries, lost responses, and reconciliation to be tested across an external boundary.
+
 ## Requirements and tests
 
 You need Go 1.27, CGO, and a C compiler. The Web Admin also needs Node.js and pnpm. The end-to-end tests need Python 3 and Chrome or Chromium, or a Playwright-installed Chromium browser. Payments use a local fake provider; no real payment service is contacted.
@@ -47,6 +53,6 @@ To limit administrator permissions, optionally set `BILLFORGE_ADMIN_CAPABILITIES
 
 To embed frontend assets in the binary, build the frontend first and then run the `go build -tags admin_ui` command above. Without that tag, the development server reads built assets from `cmd/lab/adminassets/dist`. See the [Web Admin guide and acceptance record](docs/implementation/web-admin.md) for operations, upgrades, and recovery.
 
-The A01–A30 Web Admin acceptance matrix is still in progress; the linked record lists the remaining checks.
+The A01–A30 Web Admin acceptance matrix and its remaining checks are tracked in the [Web Admin acceptance record](docs/implementation/web-admin.md).
 
 This project does not cover real payments, taxes, multiple currencies, a production general ledger, or public deployment.

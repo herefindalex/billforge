@@ -4,6 +4,12 @@
 
 Billforge 是一个在本地运行的商务系统正确性实验项目。它使用 Go 和两个独立的 SQLite 数据库，演练定价版本、订阅与合同、付款与权益、用量关账、更正、退款、对账及账户迁移。设计背景见[平台计划](docs/commerce-lab-plan.md)和 [A–D 设计推演](docs/design/README.md)；实现证据见 [MVP 完成追踪](docs/implementation/mvp-completion-tracker.md)。
 
+## 这个实验项目验证什么
+
+- 已发布的价格和合同保留版本，后续变更不会悄悄改写既有应收义务。
+- 管理操作使用预览、来源版本检查、幂等键和命令收据。付款或退款派送预览失效时，Web Admin 会显示原预览和当前操作状态，供管理员核对。
+- 商务数据库与模拟支付服务数据库彼此独立，可跨越外部系统边界测试重试、响应丢失和对账。
+
 ## 环境要求与测试
 
 需要 Go 1.27、CGO 和 C 编译器；Web Admin 还需要 Node.js 和 pnpm。端到端测试还需要 Python 3，以及 Chrome／Chromium 或通过 Playwright 安装的 Chromium。付款使用本地 fake provider，不连接真实支付服务。
@@ -47,6 +53,6 @@ go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db
 
 如需将前端资源嵌入二进制文件，先构建前端，再运行上方的 `go build -tags admin_ui`。不带此 tag 的开发运行会从 `cmd/lab/adminassets/dist` 读取构建产物。完整操作、升级与恢复流程见 [Web Admin 使用与验收记录](docs/implementation/web-admin.md)。
 
-Web Admin 的 A01–A30 验收矩阵仍在进行中；剩余检查列于上述记录。
+Web Admin 的 A01–A30 验收矩阵及剩余检查列于 [Web Admin 验收记录](docs/implementation/web-admin.md)。
 
 本项目不涵盖真实支付、税务、多币种、正式总账或公开部署。

@@ -334,6 +334,13 @@ WHERE s.id=? ORDER BY o.rowid LIMIT 1`, savedSub).Scan(&r.SubscriptionID, &r.Inv
 	if q.Fingerprint != fingerprint {
 		return Receipt{}, ErrConflict
 	}
+	var boundChange int
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM change_quote_bindings WHERE quote_id=?)`, quoteID).Scan(&boundChange); err != nil {
+		return Receipt{}, err
+	}
+	if boundChange != 0 {
+		return Receipt{}, ErrConflict
+	}
 	if err := ensureCommerceWriter(ctx, tx, q.CustomerID); err != nil {
 		return Receipt{}, err
 	}

@@ -896,6 +896,13 @@ func (l *Lab) executeAcceptQuoteTx(ctx context.Context, tx *sql.Tx, commandID, p
 	if sources["quote_fingerprint"] != fingerprint || sources["price_version_id"] != priceID || sources["price_checksum"] != checksum || sources["contract_version_id"] != contractID.String || sources["contract_checksum"] != contractChecksum.String || payload.Fingerprint != fingerprint || impact["quote_id"] != quoteID || impact["contract_version_id"] != contractID.String {
 		return nil, ErrAdminPreviewStale
 	}
+	var boundChange int
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM change_quote_bindings WHERE quote_id=?)`, quoteID).Scan(&boundChange); err != nil {
+		return nil, err
+	}
+	if boundChange != 0 {
+		return nil, ErrAdminPreviewStale
+	}
 	at, err := time.Parse(time.RFC3339Nano, businessTime)
 	if err != nil {
 		return nil, err

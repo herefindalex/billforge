@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Skeleton, Space, Typography } from 'antd'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { api, HttpError, type Command, type Preview, type Session } from '../../api/client'
 import Money from '../../components/Money'
 import PreviewWarnings from '../../components/PreviewWarnings'
@@ -24,6 +24,7 @@ function loadPending(quoteID: string): Pending | null {
 
 export default function AcceptQuote({ session }: { session: Session }) {
   const { id = '' } = useParams()
+  const navigate = useNavigate()
   const { modal } = AntApp.useApp()
   const queryClient = useQueryClient()
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -103,10 +104,17 @@ export default function AcceptQuote({ session }: { session: Session }) {
         { key: 'contract', label: '合約版本', children: quote.data.ContractVersionID || '非合約報價' },
         { key: 'terms', label: '付款條款', children: quote.data.ContractVersionID ? 'Net30，到期後才送出收款' : '一般付款流程' },
         { key: 'amount', label: '報價金額', children: <Money minor={quote.data.AmountMinor} currency={quote.data.Currency} /> },
+        ...(quote.data.ChangeMode ? [{ key: 'change_mode', label: '變更方式', children: quote.data.ChangeMode === 'immediate' ? '立即升級' : '下期變更' }] : []),
+        { key: 'due_now', label: '報價接受時現在應付', children: quote.data.DueNowMinor === null ? '待立即升級預覽估算' : <Money minor={quote.data.DueNowMinor} currency={quote.data.Currency} /> },
+        { key: 'next_full_term', label: '下一整期固定承諾（依此報價）', children: <Money minor={quote.data.NextFullTermFixedMinor} currency={quote.data.Currency} /> },
+        { key: 'usage_rate', label: '用量費率', children: quote.data.UsageMeterID ? `包含 ${quote.data.IncludedQuantity} ${quote.data.UsageMeterID}；超額每 ${quote.data.UsageMeterID} ${quote.data.UsageRateNum}/${quote.data.UsageRateDen} 最小貨幣單位` : '未設定用量收費' },
+        { key: 'tax', label: '稅務', children: '未支援；報價未包含稅額' },
         { key: 'expiry', label: '報價到期', children: new Date(quote.data.ExpiresAt).toLocaleString() },
         { key: 'status', label: '狀態', children: quote.data.Accepted ? '已接受' : '尚未接受' },
       ]} />
-      {!quote.data.Accepted && !commandID && <Button className="result-card" type="primary" onClick={() => createPreview.mutate()} loading={createPreview.isPending} disabled={pending !== null || (staleAcceptance !== null && quote.isFetching)}>預覽接受</Button>}
+      {quote.data.ChangeMode && <Alert type="info" showIcon className="result-card" message="這是現有訂閱的變更報價" description="請在原訂閱執行方案變更；此報價不能作為新購接受。" />}
+      {!quote.data.Accepted && !commandID && quote.data.ChangeMode && <Button className="result-card" type="primary" onClick={() => navigate(`/subscriptions/${encodeURIComponent(quote.data.ChangeSubscriptionID)}/${quote.data.ChangeMode === 'immediate' ? 'upgrade' : 'schedule-plan'}`, { state: { quote_id: id, fingerprint: quote.data.BindingFingerprint } })}>{quote.data.ChangeMode === 'immediate' ? '前往立即升級' : '前往下期變更'}</Button>}
+      {!quote.data.Accepted && !commandID && !quote.data.ChangeMode && <Button className="result-card" type="primary" onClick={() => createPreview.mutate()} loading={createPreview.isPending} disabled={pending !== null || (staleAcceptance !== null && quote.isFetching)}>預覽接受</Button>}
     </Card>
     {staleAcceptance && <Alert type="warning" showIcon className="result-card" message="原接受預覽已失效，請檢查報價的最新狀態" description={<Descriptions column={1} size="small" items={[
       { key: 'intent', label: '原操作意圖', children: '接受報價' },

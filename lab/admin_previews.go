@@ -155,6 +155,13 @@ func (l *Lab) AdminCreatePreview(ctx context.Context, actorID, actionID, targetI
 	if accepted != 0 {
 		return AdminPreview{}, ErrConflict
 	}
+	var boundChange int
+	if err := l.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM change_quote_bindings WHERE quote_id=?)`, targetID).Scan(&boundChange); err != nil {
+		return AdminPreview{}, err
+	}
+	if boundChange != 0 {
+		return AdminPreview{}, ErrConflict
+	}
 	quoteExpiry := time.Unix(0, expiresNano).UTC()
 	businessNow := l.ClockTime()
 	created := time.Now().UTC()

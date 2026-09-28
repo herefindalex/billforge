@@ -55,6 +55,15 @@ export type QuoteDetail = {
   ExpiresAt: string
   Fingerprint: string
   Accepted: boolean
+  ChangeMode: '' | 'next_period' | 'immediate'
+  ChangeSubscriptionID: string
+  BindingFingerprint: string
+  DueNowMinor: string | null
+  NextFullTermFixedMinor: string
+  UsageMeterID: string
+  IncludedQuantity: string
+  UsageRateNum: string
+  UsageRateDen: string
 }
 
 export type Preview = {

@@ -1136,7 +1136,12 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.getByRole('textbox', { name: /目前 Revision/ }).fill(revision)
     await page.getByRole('button', { name: '建立報價' }).click()
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
-    await page.getByRole('button', { name: '前往排程下期變更' }).click()
+    const boundQuoteID = scalar("SELECT quote_id FROM change_quote_bindings WHERE subscription_id=? AND mode='next_period'", subscriptionID)
+    await page.goto(`${app.baseURL}/admin/quotes/${boundQuoteID}/accept`)
+    await expect(page.getByRole('button', { name: '預覽接受' })).toHaveCount(0)
+    await expect(page.getByRole('row', { name: /報價接受時現在應付/ })).toContainText('USD 0.00')
+    await expect(page.getByRole('row', { name: /下一整期固定承諾/ })).toContainText('USD 100.00')
+    await page.getByRole('button', { name: '前往下期變更' }).click()
     const quoteID = await page.getByRole('textbox', { name: '已綁定的報價 ID' }).inputValue()
     const fingerprint = await page.getByRole('textbox', { name: '變更綁定 Fingerprint' }).inputValue()
     await page.getByRole('button', { name: '預覽下期變更' }).click()
@@ -1611,6 +1616,10 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
 
     await page.goto(`${app.baseURL}/admin/quotes/${quoteID}/accept`)
     await expect(page.getByRole('heading', { name: '接受報價' })).toBeVisible()
+    await expect(page.getByRole('row', { name: /報價接受時現在應付/ })).toContainText('USD 20.00')
+    await expect(page.getByRole('row', { name: /下一整期固定承諾/ })).toContainText('USD 20.00')
+    await expect(page.getByRole('row', { name: /用量費率/ })).toContainText('未設定用量收費')
+    await expect(page.getByRole('row', { name: /稅務/ })).toContainText('報價未包含稅額')
     await page.getByRole('button', { name: '預覽接受' }).click()
     await expect(page.getByText('將建立的付款義務')).toBeVisible()
     await page.getByRole('button', { name: '確認接受並建立付款義務' }).click()
@@ -1990,6 +1999,10 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
 
     await page.goto(`${app.baseURL}/admin/quotes/${quoteID}/accept`)
     await expect(page.getByText('Net30，到期後才送出收款')).toBeVisible()
+    await expect(page.getByRole('row', { name: /報價接受時現在應付/ })).toContainText('USD 0.00')
+    await expect(page.getByRole('row', { name: /下一整期固定承諾/ })).toContainText('USD 75.00')
+    await expect(page.getByRole('row', { name: /用量費率/ })).toContainText('1/10 最小貨幣單位')
+    await expect(page.getByRole('row', { name: /稅務/ })).toContainText('報價未包含稅額')
     await page.getByRole('button', { name: '預覽接受' }).click()
     await expect(page.getByText('合約 checksum')).toBeVisible()
     await expect(page.getByText('接受時應付')).toBeVisible()
@@ -2660,6 +2673,23 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.getByRole('textbox', { name: /目前 Revision/ }).fill(revision)
     await page.getByRole('button', { name: '建立報價' }).click()
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const changeQuoteID = scalar("SELECT quote_id FROM change_quote_bindings WHERE subscription_id=? AND mode='immediate'", subscriptionID)
+    await page.goto(`${app.baseURL}/admin/quotes/${changeQuoteID}/accept`)
+    await expect(page.getByText('這是現有訂閱的變更報價')).toBeVisible()
+    await expect(page.getByRole('button', { name: '預覽接受' })).toHaveCount(0)
+    await expect(page.getByRole('row', { name: /報價接受時現在應付/ })).toContainText('待立即升級預覽估算')
+    await expect(page.getByRole('row', { name: /下一整期固定承諾/ })).toContainText('USD 100.00')
+    const sessionResponse = await page.request.get(`${app.baseURL}/admin/api/session`)
+    const session = await sessionResponse.json() as { csrf_token: string }
+    const changeQuoteResponse = await page.request.get(`${app.baseURL}/admin/api/quotes/${changeQuoteID}`)
+    const changeQuote = await changeQuoteResponse.json() as { Fingerprint: string; DueNowMinor: null }
+    expect(changeQuote.DueNowMinor).toBeNull()
+    const wrongPurchase = await page.request.post(`${app.baseURL}/admin/api/previews`, {
+      headers: { Origin: app.baseURL, 'X-CSRF-Token': session.csrf_token },
+      data: { action_id: 'C02', target_id: changeQuoteID, payload: { fingerprint: changeQuote.Fingerprint } },
+    })
+    expect(wrongPurchase.status()).toBe(409)
+    expect(count('SELECT COUNT(*) FROM subscriptions WHERE quote_id=?', changeQuoteID)).toBe(0)
     await page.getByRole('button', { name: '前往立即升級' }).click()
     await page.getByRole('button', { name: '預覽立即升級' }).click()
     await expect(page.getByText('USD 40.00')).toBeVisible()
@@ -4237,18 +4267,24 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.getByRole('button', { name: '建立預覽' }).click()
     let droppedWriterResponse = false
     let writerRequestKey = ''
+    let writerCommit: Promise<void> | null = null
     await page.route('**/admin/api/commands', async (route) => {
       if (!droppedWriterResponse && route.request().method() === 'POST') {
         droppedWriterResponse = true
         writerRequestKey = route.request().headers()['idempotency-key']
-        const committed = await commitThenDropResponse(page, route)
-        expect(committed.ok()).toBe(true)
+        writerCommit = (async () => {
+          const committed = await commitThenDropResponse(page, route)
+          expect(committed.ok()).toBe(true)
+        })()
+        await writerCommit
       } else {
         await route.continue()
       }
     })
     await page.getByRole('button', { name: '確認切換寫入' }).last().click()
     await page.getByRole('dialog').getByRole('button', { name: '確認切換寫入' }).click()
+    await expect.poll(() => writerCommit !== null).toBe(true)
+    await writerCommit
     await expect(page.getByText('原命令的結果尚未確認')).toBeVisible()
     expect(writerRequestKey).toBeTruthy()
     const writerCommandID = scalar("SELECT id FROM admin_commands WHERE action_id='C42' AND target_id=?", legacyID)

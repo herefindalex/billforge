@@ -249,7 +249,10 @@ test('migration detail shows source price seat and schedule conflicts without re
       migrationIDs.push(migrationID)
       await page.goto(`${base}/admin/price-migrations/new`)
       const startAnother = page.getByRole('button', { name: '執行另一個操作' })
-      if (await startAnother.isVisible()) await startAnother.click()
+      if (migrationIDs.length > 1) {
+        await expect(startAnother).toBeVisible()
+        await startAnother.click()
+      }
       await fill([
         ['遷移批次 ID', migrationID], ['Cohort', 'default'],
         ['目標價格版本 ID', priceID], ['訂閱 ID（逗號或換行分隔）', subscriptionID],

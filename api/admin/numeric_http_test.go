@@ -14,6 +14,86 @@ import (
 	"billforge/lab"
 )
 
+func TestLargePublishedPriceAndQuoteReadBackExactlyOverHTTP(t *testing.T) {
+	ctx := context.Background()
+	at := time.Date(2026, time.September, 28, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	l, err := lab.Open(filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db"), func() time.Time { return at })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	const large = int64(9007199254740993)
+	const priceID = "pro-large-readback"
+	if _, err := l.PublishProPrice(ctx, lab.ProPriceSpec{
+		ID: priceID, Version: 2, FixedMinor: large, SeatMinor: 1,
+		IncludedTasks: 0, UsageRateNum: 1, UsageRateDen: large, EffectiveFrom: at,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.SelectCatalogPrice(ctx, "pro", "large-readback", at, priceID); err != nil {
+		t.Fatal(err)
+	}
+	quote, err := l.CreateQuoteForCohort(ctx, "large-readback-customer", "pro", "large-readback", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{lab: l}
+	priceRequest := httptest.NewRequest(http.MethodGet, "/admin/api/prices/"+priceID, nil)
+	priceRequest.SetPathValue("id", priceID)
+	priceResponse := httptest.NewRecorder()
+	s.priceDetail(priceResponse, priceRequest)
+	if priceResponse.Code != http.StatusOK {
+		t.Fatalf("price detail: status=%d body=%s", priceResponse.Code, priceResponse.Body.String())
+	}
+	var priceBody struct {
+		Price struct {
+			FixedMinor string
+			Components []struct {
+				Code    string
+				RateDen string
+			}
+		}
+	}
+	if err := json.Unmarshal(priceResponse.Body.Bytes(), &priceBody); err != nil {
+		t.Fatal(err)
+	}
+	if priceBody.Price.FixedMinor != "9007199254740993" {
+		t.Fatalf("fixed price lost precision: %s", priceResponse.Body.String())
+	}
+	var foundRate bool
+	for _, component := range priceBody.Price.Components {
+		if component.Code == "tasks_overage" && component.RateDen == "9007199254740993" {
+			foundRate = true
+		}
+	}
+	if !foundRate {
+		t.Fatalf("usage rate denominator lost precision: %s", priceResponse.Body.String())
+	}
+
+	quoteRequest := httptest.NewRequest(http.MethodGet, "/admin/api/quotes/"+quote.ID, nil)
+	quoteRequest.SetPathValue("id", quote.ID)
+	quoteResponse := httptest.NewRecorder()
+	s.quoteDetail(quoteResponse, quoteRequest)
+	if quoteResponse.Code != http.StatusOK {
+		t.Fatalf("quote detail: status=%d body=%s", quoteResponse.Code, quoteResponse.Body.String())
+	}
+	var quoteBody struct {
+		AmountMinor  string
+		UsageRateDen string
+	}
+	if err := json.Unmarshal(quoteResponse.Body.Bytes(), &quoteBody); err != nil {
+		t.Fatal(err)
+	}
+	if quoteBody.AmountMinor != "9007199254740994" || quoteBody.UsageRateDen != "9007199254740993" {
+		t.Fatalf("quote numbers lost precision: %s", quoteResponse.Body.String())
+	}
+}
+
 func TestMoneyAndTimePayloadBoundariesRejectBeforeHTTPAdmission(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

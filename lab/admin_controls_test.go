@@ -989,6 +989,59 @@ func TestAdminRefundDecisionRecoversAfterProviderCommitAndDispatch(t *testing.T)
 	if err := l.provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_control_receipts WHERE command_id=?`, command.ID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("provider receipts %d %v", count, err)
 	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("admin receipts %d %v", count, err)
+	}
+	var status string
+	if err := l.db.QueryRowContext(ctx, `SELECT status FROM refund_operations WHERE id=?`, refundID).Scan(&status); err != nil || status != "definitively_failed" {
+		t.Fatalf("refund operation status %q %v", status, err)
+	}
+	if err := l.provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM refunds WHERE provider_key=? AND status='succeeded'`, key).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("successful provider refunds %d %v", count, err)
+	}
+	credit, err := l.CreditBalance(ctx, correction.GrantIDs[0])
+	if err != nil || credit.GrantedMinor != 1000 || credit.ReservedMinor != 0 || credit.RefundedMinor != 0 || credit.AvailableMinor != 1000 {
+		t.Fatalf("credit after failed refund %+v %v", credit, err)
+	}
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-refund-001", "C48", refundID, json.RawMessage(`{"status":"definitively_failed"}`), "")
+	if err != nil || !replay || replayed.ID != command.ID || replayed.Status != "succeeded" {
+		t.Fatalf("replayed refund decision %+v replay=%t err=%v", replayed, replay, err)
+	}
+	if _, _, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-refund-001", "C48", refundID, json.RawMessage(`{"status":"succeeded"}`), ""); !errors.Is(err, ErrAdminIdempotencyConflict) {
+		t.Fatalf("changed decision with original key: %v", err)
+	}
+	if err := l.AdminResumeAccepted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_control_receipts WHERE command_id=?`, command.ID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("provider receipts after replay %d %v", count, err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("admin receipts after replay %d %v", count, err)
+	}
+}
+
+func TestAdminRefundDecisionRejectsInvalidPayloadBeforeAdmission(t *testing.T) {
+	ctx := context.Background()
+	l, _, _ := openTestLab(t)
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range []string{
+		`{}`,
+		`{"status":"pending"}`,
+		`{"status":"SUCCEEDED"}`,
+		`{"status":"succeeded","unexpected":true}`,
+		`null`,
+	} {
+		if _, _, err := l.AdminSubmitCommand(ctx, "local-admin", "invalid-refund-decision", "C48", "refund_missing", json.RawMessage(payload), ""); !errors.Is(err, ErrAdminInvalidCommand) {
+			t.Errorf("payload %s: got %v, want invalid command", payload, err)
+		}
+	}
+	var count int
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_commands WHERE action_id='C48'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("invalid refund decisions admitted %d %v", count, err)
+	}
 }
 
 func TestAdminPaymentDecisionRecoversAfterProviderCommitAndCapture(t *testing.T) {

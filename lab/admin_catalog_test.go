@@ -81,6 +81,106 @@ func TestAdminPublishPriceReceiptFailureRecoversWithoutPartialVersion(t *testing
 	}
 }
 
+func TestAdminCatalogDependencyChainReceiptFailuresRecover(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	commerce, provider := filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db")
+	now := func() time.Time { return fixedNow }
+	l, err := Open(commerce, provider, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	effective := fixedNow.Format(time.RFC3339Nano)
+	cases := []struct {
+		action, key string
+		payload     json.RawMessage
+		countSQL    string
+		auxSQL      string
+		wantAux     int
+	}{
+		{"C19", "receipt-meter-key", json.RawMessage(`{"id":"receipt_api_calls","source":"api","unit":"request","schema_version":"1"}`),
+			`SELECT COUNT(*) FROM meter_schemas WHERE id='receipt_api_calls'`, "", 0},
+		{"C20", "receipt-metered-price-key", json.RawMessage(`{"id":"receipt_ai_v1","plan_id":"receipt_ai","version":"1","fixed_minor":"3000","seat_minor":"0","meter_id":"receipt_api_calls","included_quantity":"100","usage_rate_num":"2","usage_rate_den":"1","effective_from":"` + effective + `"}`),
+			`SELECT COUNT(*) FROM price_versions WHERE id='receipt_ai_v1'`, `SELECT COUNT(*) FROM price_components WHERE price_version_id='receipt_ai_v1'`, 2},
+		{"C21", "receipt-selection-key", json.RawMessage(`{"plan_id":"receipt_ai","cohort":"default","effective_at":"` + effective + `","price_version_id":"receipt_ai_v1"}`),
+			`SELECT COUNT(*) FROM catalog_selection WHERE plan_id='receipt_ai' AND cohort='default'`, "", 0},
+	}
+	for _, tc := range cases {
+		preview, err := l.AdminCreatePreview(ctx, "local-admin", tc.action, "", tc.payload)
+		if err != nil {
+			t.Fatalf("%s preview: %v", tc.action, err)
+		}
+		command, replay, err := l.AdminSubmitCommand(ctx, "local-admin", tc.key, tc.action, "", tc.payload, preview.ID)
+		if err != nil || replay {
+			t.Fatalf("%s submit: %+v replay=%t err=%v", tc.action, command, replay, err)
+		}
+		if _, err := l.db.ExecContext(ctx, `CREATE TEMP TRIGGER fail_catalog_receipt BEFORE INSERT ON admin_command_receipts BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.AdminExecuteCommand(ctx, command.ID); err == nil {
+			t.Fatalf("%s receipt failure should roll back domain facts", tc.action)
+		}
+		var facts, aux, receipts int
+		readCounts := func() {
+			t.Helper()
+			if err := l.db.QueryRowContext(ctx, tc.countSQL).Scan(&facts); err != nil {
+				t.Fatal(err)
+			}
+			if tc.auxSQL != "" {
+				if err := l.db.QueryRowContext(ctx, tc.auxSQL).Scan(&aux); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+				t.Fatal(err)
+			}
+		}
+		readCounts()
+		if facts != 0 || aux != 0 || receipts != 0 {
+			t.Fatalf("%s left partial facts: facts=%d aux=%d receipts=%d", tc.action, facts, aux, receipts)
+		}
+		if err := l.Close(); err != nil {
+			t.Fatal(err)
+		}
+		l, err = Open(commerce, provider, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.InitAdmin(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.AdminResumeAccepted(ctx); err != nil {
+			t.Fatalf("%s resume: %v", tc.action, err)
+		}
+		recovered, err := l.AdminCommand(ctx, command.ID)
+		if err != nil || recovered.Status != "succeeded" {
+			t.Fatalf("%s original command not recovered: %+v err=%v", tc.action, recovered, err)
+		}
+		replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", tc.key, tc.action, "", tc.payload, preview.ID)
+		if err != nil || !replay || replayed.ID != command.ID {
+			t.Fatalf("%s replay changed command: %+v replay=%t err=%v", tc.action, replayed, replay, err)
+		}
+		readCounts()
+		if facts != 1 || aux != tc.wantAux || receipts != 1 {
+			t.Fatalf("%s recovery facts=%d aux=%d receipts=%d", tc.action, facts, aux, receipts)
+		}
+	}
+	var selectedPrice, overageMeter string
+	if err := l.db.QueryRowContext(ctx, `SELECT price_version_id FROM catalog_selection WHERE plan_id='receipt_ai' AND cohort='default'`).Scan(&selectedPrice); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT meter_id FROM price_components WHERE price_version_id='receipt_ai_v1' AND kind='usage_overage'`).Scan(&overageMeter); err != nil {
+		t.Fatal(err)
+	}
+	if selectedPrice != "receipt_ai_v1" || overageMeter != "receipt_api_calls" {
+		t.Fatalf("recovered catalog chain selected=%q overage_meter=%q", selectedPrice, overageMeter)
+	}
+}
+
 func TestAdminMeterRegistrationRejectsStaleConflictingSchema(t *testing.T) {
 	ctx := context.Background()
 	l, _, _ := openTestLab(t)

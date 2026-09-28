@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
 import { startLocalAdmin, type LocalAdmin } from './server'
 
 test.describe.serial('local Web Admin with real SQLite and fake provider', () => {
@@ -19,6 +19,21 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.getByRole('button', { name: '登 入' }).click()
     await expect(page).toHaveURL(/\/admin\/?$/)
     await expect(page.getByRole('heading', { name: '營運概覽' })).toBeVisible()
+  }
+
+  async function commitThenDropResponse(page: Page, route: Route) {
+    const request = route.request()
+    const original = request.headers()
+    const headers: Record<string, string> = { origin: original.origin ?? new URL(request.url()).origin }
+    for (const name of ['content-type', 'x-csrf-token', 'idempotency-key', 'x-request-id']) {
+      if (original[name]) headers[name] = original[name]
+    }
+    // Use a separate connection so committing the request cannot consume the intercepted route.
+    try {
+      return await page.request.post(request.url(), { headers, data: request.postData() ?? '' })
+    } finally {
+      await route.abort('failed')
+    }
   }
 
   test('process credentials override conflicting env file credentials', async ({ page }) => {
@@ -420,8 +435,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.route('**/admin/api/commands', async (route) => {
       if (!dropped && route.request().method() === 'POST') {
         dropped = true
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -606,8 +620,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       if (!dropped && route.request().method() === 'POST' && (route.request().postData() ?? '').includes('"action_id":"C11"')) {
         dropped = true
         originalKey = route.request().headers()['idempotency-key']
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -648,8 +661,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       if (!dropped && route.request().method() === 'POST') {
         dropped = true
         originalKey = route.request().headers()['idempotency-key']
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -693,8 +705,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       if (!dropped && route.request().method() === 'POST') {
         dropped = true
         originalKey = route.request().headers()['idempotency-key']
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -1251,8 +1262,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.route('**/admin/api/commands', async (route) => {
       if (!dropped && route.request().method() === 'POST') {
         dropped = true
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -1966,8 +1976,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
         if (!droppedCollectionResponse && route.request().method() === 'POST') {
           droppedCollectionResponse = true
           collectionKey = route.request().headers()['idempotency-key']
-          await route.fetch()
-          await route.abort('failed')
+          await commitThenDropResponse(page, route)
         } else {
           await route.continue()
         }
@@ -2654,8 +2663,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       if (!droppedCorrectionResponse && route.request().method() === 'POST') {
         droppedCorrectionResponse = true
         correctionKey = route.request().headers()['idempotency-key']
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -2795,8 +2803,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       if (!droppedResolutionResponse && route.request().method() === 'POST') {
         droppedResolutionResponse = true
         resolutionKey = route.request().headers()['idempotency-key']
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -3307,9 +3314,8 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.route('**/admin/api/commands', async (route) => {
       if (!dropped && route.request().method() === 'POST') {
         dropped = true
-        const response = await route.fetch()
+        const response = await commitThenDropResponse(page, route)
         expect(response.status()).toBe(202)
-        await route.abort('failed')
         return
       }
       await route.continue()
@@ -3540,6 +3546,11 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
     expect(scalar('SELECT status FROM price_migrations WHERE id=?', migrationID)).toBe('paused')
 
+    const resumePage = await page.context().newPage()
+    await resumePage.goto(`${app.baseURL}/admin/price-migrations/${migrationID}/resume`)
+    await resumePage.getByRole('button', { name: '建立預覽' }).click()
+    await expect(resumePage.getByText('操作預覽')).toBeVisible()
+
     await page.goto(`${app.baseURL}/admin/price-migrations/${migrationID}/skip`)
     await page.getByLabel('訂閱 ID', { exact: true }).fill(subscriptions[0])
     await page.getByLabel('略過理由', { exact: true }).fill('customer opted out')
@@ -3548,11 +3559,21 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await page.getByRole('dialog').getByRole('button', { name: '確認略過' }).click()
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
 
-    await page.goto(`${app.baseURL}/admin/price-migrations/${migrationID}/resume`)
-    await page.getByRole('button', { name: '建立預覽' }).click()
-    await page.getByRole('button', { name: '確認恢復' }).last().click()
-    await page.getByRole('dialog').getByRole('button', { name: '確認恢復' }).click()
-    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const staleResume = resumePage.waitForResponse((response) => response.url().endsWith('/admin/api/commands') && response.request().method() === 'POST')
+    await resumePage.getByRole('button', { name: '確認恢復' }).last().click()
+    await resumePage.getByRole('dialog').getByRole('button', { name: '確認恢復' }).click()
+    const rejected = await staleResume
+    expect(rejected.status()).toBe(409)
+    expect((await rejected.json()).error.code).toBe('PREVIEW_STALE')
+    await expect(resumePage.getByText('原預覽已失效，請檢查新預覽並再次確認')).toBeVisible()
+    expect(scalar('SELECT status FROM price_migrations WHERE id=?', migrationID)).toBe('paused')
+    expect(count("SELECT COUNT(*) FROM price_migration_items WHERE migration_id=? AND status='skipped'", migrationID)).toBe(1)
+    expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C25' AND c.target_id=?", migrationID)).toBe(0)
+
+    await resumePage.getByRole('button', { name: '確認恢復' }).last().click()
+    await resumePage.getByRole('dialog').getByRole('button', { name: '確認恢復' }).click()
+    await expect(resumePage.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    await resumePage.close()
     expect(scalar('SELECT status FROM price_migrations WHERE id=?', migrationID)).toBe('active')
     expect(count("SELECT COUNT(*) FROM price_migration_items WHERE migration_id=? AND status='skipped'", migrationID)).toBe(1)
     expect(count("SELECT COUNT(*) FROM price_migration_items WHERE migration_id=? AND status='pending'", migrationID)).toBe(1)
@@ -3700,8 +3721,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       if (!droppedCreditNoteResponse && route.request().method() === 'POST') {
         droppedCreditNoteResponse = true
         creditNoteKey = route.request().headers()['idempotency-key']
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -4164,9 +4184,8 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       if (!droppedWriterResponse && route.request().method() === 'POST') {
         droppedWriterResponse = true
         writerRequestKey = route.request().headers()['idempotency-key']
-        const committed = await route.fetch()
+        const committed = await commitThenDropResponse(page, route)
         expect(committed.ok()).toBe(true)
-        await route.abort('failed')
       } else {
         await route.continue()
       }
@@ -4581,8 +4600,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       if (!dropped && route.request().method() === 'POST') {
         dropped = true
         originalKey = route.request().headers()['idempotency-key']
-        await route.fetch()
-        await route.abort('failed')
+        await commitThenDropResponse(page, route)
       } else {
         await route.continue()
       }
@@ -4640,8 +4658,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
         if (!dropped && route.request().method() === 'POST') {
           dropped = true
           originalKey = route.request().headers()['idempotency-key']
-          await route.fetch()
-          await route.abort('failed')
+          await commitThenDropResponse(page, route)
         } else {
           await route.continue()
         }

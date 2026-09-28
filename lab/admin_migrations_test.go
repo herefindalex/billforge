@@ -180,3 +180,102 @@ func TestAdminMigrationResumeInvalidatesConcurrentSkipPreview(t *testing.T) {
 		t.Fatalf("migration control receipts after fresh skip %d %v", receipts, err)
 	}
 }
+
+func TestAdminMigrationSkipInvalidatesConcurrentResumePreview(t *testing.T) {
+	ctx := context.Background()
+	l, _ := openChangingLab(t)
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := paidProSubscription(t, l, "migration-resume-skip-race-first")
+	second := paidProSubscription(t, l, "migration-resume-skip-race-second")
+	if _, err := l.PublishProPrice(ctx, proV2Spec()); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.SelectCatalogPrice(ctx, "pro", "A", fixedNow, "pro-v2"); err != nil {
+		t.Fatal(err)
+	}
+	const migrationID = "migration-resume-skip-race"
+	if _, err := l.PlanPriceMigration(ctx, migrationID, "A", "pro-v2", []string{first.SubscriptionID, second.SubscriptionID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.PausePriceMigration(ctx, migrationID); err != nil {
+		t.Fatal(err)
+	}
+
+	resumePayload := json.RawMessage(`{}`)
+	resumePreview, err := l.AdminCreatePreview(ctx, "local-admin", "C25", migrationID, resumePayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skipPayload, err := json.Marshal(adminSkipMigrationPayload{SubscriptionID: first.SubscriptionID, Reason: "operator skip"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skipPreview, err := l.AdminCreatePreview(ctx, "local-admin", "C24", migrationID, skipPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resume, _, err := l.AdminSubmitCommand(ctx, "local-admin", "migration-stale-resume", "C25", migrationID, resumePayload, resumePreview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skip, _, err := l.AdminSubmitCommand(ctx, "local-admin", "migration-first-skip", "C24", migrationID, skipPayload, skipPreview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	skip, err = l.AdminExecuteCommand(ctx, skip.ID)
+	if err != nil || skip.Status != "succeeded" {
+		t.Fatalf("skip before resume %+v %v", skip, err)
+	}
+	resume, err = l.AdminExecuteCommand(ctx, resume.ID)
+	if err != nil || resume.Status != "failed" || resume.ErrorCode != "PREVIEW_STALE" {
+		t.Fatalf("old resume preview %+v %v", resume, err)
+	}
+	batch, err := l.PriceMigration(ctx, migrationID)
+	if err != nil || batch.Status != "paused" || len(batch.Items) != 2 {
+		t.Fatalf("skip changed paused batch unexpectedly: %+v %v", batch, err)
+	}
+	statuses := map[string]string{}
+	for _, item := range batch.Items {
+		statuses[item.SubscriptionID] = item.Status
+	}
+	if statuses[first.SubscriptionID] != "skipped" || statuses[second.SubscriptionID] != "pending" {
+		t.Fatalf("skip/resume item states: %+v", statuses)
+	}
+	var receipts int
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id IN (?,?)`, skip.ID, resume.ID).Scan(&receipts); err != nil || receipts != 1 {
+		t.Fatalf("skip/resume receipts %d %v", receipts, err)
+	}
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "migration-stale-resume", "C25", migrationID, resumePayload, resumePreview.ID)
+	if err != nil || !replay || replayed.ID != resume.ID || replayed.Status != "failed" {
+		t.Fatalf("stale resume replay %+v replay=%t err=%v", replayed, replay, err)
+	}
+	freshPreview, err := l.AdminCreatePreview(ctx, "local-admin", "C25", migrationID, resumePayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, _, err := l.AdminSubmitCommand(ctx, "local-admin", "migration-fresh-resume", "C25", migrationID, resumePayload, freshPreview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err = l.AdminExecuteCommand(ctx, fresh.ID)
+	if err != nil || fresh.Status != "succeeded" {
+		t.Fatalf("fresh resume %+v %v", fresh, err)
+	}
+	batch, err = l.PriceMigration(ctx, migrationID)
+	if err != nil || batch.Status != "active" || len(batch.Items) != 2 {
+		t.Fatalf("fresh resume changed membership: %+v %v", batch, err)
+	}
+	statuses = map[string]string{}
+	for _, item := range batch.Items {
+		statuses[item.SubscriptionID] = item.Status
+	}
+	if statuses[first.SubscriptionID] != "skipped" || statuses[second.SubscriptionID] != "pending" {
+		t.Fatalf("fresh resume item states: %+v", statuses)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id IN (?,?,?)`, skip.ID, resume.ID, fresh.ID).Scan(&receipts); err != nil || receipts != 2 {
+		t.Fatalf("skip/resume recovery receipts %d %v", receipts, err)
+	}
+}

@@ -19,7 +19,7 @@ export type Overview = {
 }
 
 export type ExternalOperationDetail = {
- operation: { id: string; status: string; outbox_status: string; amount_minor: string; currency: string }
+ operation: { id: string; status: string; outbox_status: string; amount_minor: string; currency: string; source_id: string }
  observed_at: string
 }
 

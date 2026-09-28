@@ -19,6 +19,7 @@ type externalOperationResponse struct {
 		OutboxStatus string `json:"outbox_status"`
 		AmountMinor  string `json:"amount_minor"`
 		Currency     string `json:"currency"`
+		SourceID     string `json:"source_id"`
 	} `json:"operation"`
 	ObservedAt string `json:"observed_at"`
 }
@@ -65,7 +66,7 @@ func TestExternalOperationDetailsExposeCurrentStateWithoutProviderKeys(t *testin
 		return body
 	}
 	paymentPath := "/admin/api/payments/" + paid.OperationID
-	if got := read(paid.OperationID, paymentPath, s.paymentDetail).Operation; got.Status != "created" || got.OutboxStatus != "pending" || got.AmountMinor != "2000" {
+	if got := read(paid.OperationID, paymentPath, s.paymentDetail).Operation; got.Status != "created" || got.OutboxStatus != "pending" || got.AmountMinor != "2000" || got.SourceID != paid.InvoiceID {
 		t.Fatalf("new payment=%+v", got)
 	}
 	if _, err := l.DispatchCapture(ctx, paid.OperationID, ""); err != nil {
@@ -83,7 +84,7 @@ func TestExternalOperationDetailsExposeCurrentStateWithoutProviderKeys(t *testin
 		t.Fatal(err)
 	}
 	refundPath := "/admin/api/refunds/" + refundID
-	if got := read(refundID, refundPath, s.refundDetail).Operation; got.Status != "created" || got.OutboxStatus != "pending" || got.AmountMinor != "400" {
+	if got := read(refundID, refundPath, s.refundDetail).Operation; got.Status != "created" || got.OutboxStatus != "pending" || got.AmountMinor != "400" || got.SourceID != correction.GrantIDs[0] {
 		t.Fatalf("new refund=%+v", got)
 	}
 	if _, err := l.DispatchRefund(ctx, refundID, ""); err != nil {

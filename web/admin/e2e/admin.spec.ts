@@ -953,6 +953,16 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C09' AND c.target_id=?", operationID)).toBe(1)
       expect(count('SELECT COUNT(*) FROM allocations WHERE operation_id=?', operationID)).toBe(1)
       expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', providerKey, app.providerPath)).toBe('1')
+
+      const invoiceID = scalar('SELECT invoice_id FROM payment_operations WHERE id=?', operationID)
+      await page.goto(`${app.baseURL}/admin/payments?id_prefix=${encodeURIComponent(operationID)}`)
+      await page.getByRole('button', { name: '開啟操作' }).click()
+      await expect(page).toHaveURL(`${app.baseURL}/admin/payments/${operationID}`)
+      await expect(page.getByRole('heading', { name: '付款操作詳情' })).toBeVisible()
+      await expect(page.getByText('succeeded', { exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: '查證原操作' })).toBeVisible()
+      await page.getByRole('button', { name: invoiceID }).click()
+      await expect(page).toHaveURL(`${app.baseURL}/admin/invoices/${invoiceID}`)
     } finally {
       await other.close()
     }
@@ -1547,9 +1557,11 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
   test('embedded admin upgrades a CLI database and preserves its invoice and provider capture', async ({ page }) => {
     const upgraded = await startLocalAdmin({ seedDemo: true })
     try {
-      expect(scalar('SELECT MAX(version) FROM admin_schema_versions WHERE ? IS NOT NULL', 'seeded', upgraded.commercePath)).toBe('8')
+      expect(scalar('SELECT MAX(version) FROM admin_schema_versions WHERE ? IS NOT NULL', 'seeded', upgraded.commercePath)).toBe('9')
       expect(scalar("SELECT COUNT(*) FROM pragma_table_info('admin_commands') WHERE name='request_id' AND ? IS NOT NULL", 'seeded', upgraded.commercePath)).toBe('1')
       expect(scalar("SELECT COUNT(*) FROM pragma_table_info('admin_audit') WHERE name='request_id' AND ? IS NOT NULL", 'seeded', upgraded.commercePath)).toBe('1')
+      expect(scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='admin_external_dispatch_claims' AND ? IS NOT NULL", 'seeded', upgraded.commercePath)).toBe('1')
+      expect(scalar('SELECT COUNT(*) FROM admin_external_dispatch_claims WHERE ? IS NOT NULL', 'seeded', upgraded.commercePath)).toBe('0')
       const invoiceID = scalar('SELECT i.id FROM invoices i JOIN subscriptions s ON s.id=i.subscription_id WHERE s.customer_id=?', 'demo-customer', upgraded.commercePath)
       expect(scalar('SELECT total_minor FROM invoices WHERE id=?', invoiceID, upgraded.commercePath)).toBe('2000')
       const operationID = scalar('SELECT id FROM payment_operations WHERE invoice_id=?', invoiceID, upgraded.commercePath)
@@ -2635,6 +2647,15 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
       expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C16' AND c.target_id=?", refundID)).toBe(1)
       expect(scalar('SELECT status FROM refund_operations WHERE id=?', refundID)).toBe('succeeded')
       expect(scalar('SELECT COUNT(*) FROM refunds WHERE provider_key=?', providerKey, app.providerPath)).toBe('1')
+
+      await page.goto(`${app.baseURL}/admin/refunds?id_prefix=${encodeURIComponent(refundID)}`)
+      await page.getByRole('button', { name: '開啟操作' }).click()
+      await expect(page).toHaveURL(`${app.baseURL}/admin/refunds/${refundID}`)
+      await expect(page.getByRole('heading', { name: '退款操作詳情' })).toBeVisible()
+      await expect(page.getByText('succeeded', { exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: '查證原操作' })).toBeVisible()
+      await page.getByRole('button', { name: grantID }).click()
+      await expect(page).toHaveURL(`${app.baseURL}/admin/credits/${grantID}`)
     } finally {
       await other.close()
     }

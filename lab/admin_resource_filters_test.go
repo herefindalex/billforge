@@ -123,8 +123,18 @@ func TestAdminResourceCreatedRangeUsesUTCAndExclusiveUpperBound(t *testing.T) {
 		t.Fatalf("exclusive upper bound items=%v total=%d err=%v", exclude, total, err)
 	}
 	for _, filters := range []map[string]string{
+		{"created_from": "2026-01-01T00:00:00.123456789Z"},
+		{"created_before": "2027-01-01T00:00:00.123456789Z"},
+	} {
+		if _, _, _, err := l.AdminFilteredResourcePage(ctx, "subscriptions", 0, 10, filters); err != nil {
+			t.Fatalf("valid nanosecond time filters %v returned %v", filters, err)
+		}
+	}
+	for _, filters := range []map[string]string{
 		{"created_from": "2026-01-01T00:00:00+00:00"},
 		{"created_from": "invalid"},
+		{"created_from": "2026-01-01T00:00:00.1234567891Z"},
+		{"created_before": "2026-01-01T00:00:00.1234567891Z"},
 		{"created_before": "1500-01-01T00:00:00Z"},
 		{"created_from": created, "created_before": created},
 	} {

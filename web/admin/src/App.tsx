@@ -7,6 +7,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { advanceSessionGeneration, api, HttpError, sessionExpiredEvent, type Session } from './api/client'
+import { isExactAdminUTC } from './api/validation'
 import CreateQuote from './features/quotes/CreateQuote'
 import AcceptQuote from './features/quotes/AcceptQuote'
 import CommandList from './features/commands/CommandList'
@@ -647,7 +648,10 @@ function ResourceView({ name, path }: { name: string; path: string }) {
   return <>
     <Button onClick={() => void query.refetch()} loading={query.isFetching} className="result-card">更新資料</Button>
     {filterKeys.length > 0 && <Form key={`${path}:${filterSignature}`} layout="inline" initialValues={filters} onFinish={applyFilters} className="resource-filters">
-      {filterKeys.map((key) => <Form.Item key={key} name={key} label={resourceFilterLabels[key] ?? key}>
+      {filterKeys.map((key) => <Form.Item key={key} name={key} label={resourceFilterLabels[key] ?? key} rules={key === 'created_from' || key === 'created_before' ? [{ validator: async (_rule, value: string | undefined) => {
+        const timestamp = value?.trim()
+        if (timestamp && !isExactAdminUTC(timestamp)) throw new Error('請輸入有效 UTC 時間（最多 9 位小數秒）')
+      } }] : undefined}>
         {key === 'status' && resourceStatusOptions[path]
           ? <Select allowClear options={resourceStatusOptions[path].map((value) => ({ value, label: value }))} style={{ minWidth: 160 }} />
           : <Input allowClear maxLength={256} placeholder={key.startsWith('created_') ? '2026-09-26T00:00:00Z' : undefined} style={{ minWidth: key.startsWith('created_') ? 230 : 170 }} />}

@@ -55,6 +55,9 @@ func TestResourceListFiltersAndCursorScope(t *testing.T) {
 	if w := get("subscriptions?created_from=2100-01-01T00:00:00Z&created_before=2200-01-01T00:00:00Z", true); w.Code != http.StatusOK {
 		t.Fatalf("valid UTC range returned %d: %s", w.Code, w.Body.String())
 	}
+	if w := get("subscriptions?created_from=2026-01-01T00:00:00.123456789Z", true); w.Code != http.StatusOK {
+		t.Fatalf("valid nanosecond UTC lower bound returned %d: %s", w.Code, w.Body.String())
+	}
 	var first struct {
 		Items      []map[string]any `json:"items"`
 		NextCursor string           `json:"next_cursor"`
@@ -84,6 +87,8 @@ func TestResourceListFiltersAndCursorScope(t *testing.T) {
 		{"quotes?customer_id=filtered-a&customer_id=filtered-b", "INVALID_FILTER", http.StatusBadRequest},
 		{"quotes?customer_id=%zz", "INVALID_FILTER", http.StatusBadRequest},
 		{"subscriptions?created_from=invalid", "INVALID_FILTER", http.StatusBadRequest},
+		{"subscriptions?created_from=2026-01-01T00:00:00.1234567891Z", "INVALID_FILTER", http.StatusBadRequest},
+		{"subscriptions?created_before=2026-01-01T00:00:00.1234567891Z", "INVALID_FILTER", http.StatusBadRequest},
 		{"subscriptions?created_from=2100-01-01T00:00:00Z&created_before=2100-01-01T00:00:00Z", "INVALID_FILTER", http.StatusBadRequest},
 		{"quotes?created_from=2026-01-01T00:00:00Z", "INVALID_FILTER", http.StatusBadRequest},
 		{"quotes?limit=101", "INVALID_LIMIT", http.StatusBadRequest},

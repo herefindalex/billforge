@@ -3011,6 +3011,34 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     await expect(page.getByText('目前沒有資料')).toBeVisible()
   })
 
+  test('resource UTC filters reject lost nanosecond precision before querying', async ({ page }) => {
+    await signIn(page)
+    await page.goto(`${app.baseURL}/admin/subscriptions`)
+    let invalidRequests = 0
+    page.on('request', (request) => {
+      if (request.method() === 'GET' && request.url().includes('/admin/api/subscriptions') && request.url().includes('1234567891')) invalidRequests += 1
+    })
+    const lower = page.getByLabel('建立時間起（UTC）')
+    const upper = page.getByLabel('建立時間前（UTC）')
+    await lower.fill('2026-01-01T00:00:00.1234567891Z')
+    await page.getByRole('button', { name: '套用篩選' }).click()
+    await expect(page.locator('#created_from_help')).toHaveText('請輸入有效 UTC 時間（最多 9 位小數秒）')
+    await expect(lower).toHaveAttribute('aria-invalid', 'true')
+    expect(new URL(page.url()).searchParams.has('created_from')).toBe(false)
+    await lower.fill('2026-01-01T00:00:00.123456789Z')
+    await upper.fill('2027-01-01T00:00:00.1234567891Z')
+    await page.getByRole('button', { name: '套用篩選' }).click()
+    await expect(page.locator('#created_before_help')).toHaveText('請輸入有效 UTC 時間（最多 9 位小數秒）')
+    await expect(upper).toHaveAttribute('aria-invalid', 'true')
+    expect(new URL(page.url()).searchParams.has('created_before')).toBe(false)
+    await upper.fill('2027-01-01T00:00:00.123456789Z')
+    await page.getByRole('button', { name: '套用篩選' }).click()
+    await expect(page).toHaveURL(/created_from=/)
+    expect(new URL(page.url()).searchParams.get('created_from')).toBe('2026-01-01T00:00:00.123456789Z')
+    expect(new URL(page.url()).searchParams.get('created_before')).toBe('2027-01-01T00:00:00.123456789Z')
+    expect(invalidRequests).toBe(0)
+  })
+
   test('price and contract component boundaries reject invalid values before preview', async ({ page }) => {
     await signIn(page)
     const initialCommands = count('SELECT COUNT(*) FROM admin_commands WHERE action_id IN (?, ?)', 'C18', 'C20')

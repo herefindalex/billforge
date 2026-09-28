@@ -169,8 +169,11 @@ func (l *Lab) AdminFilteredResourcePage(ctx context.Context, name string, after 
 			continue
 		}
 		if key == "created_from" || key == "created_before" {
+			if _, err := canonicalAdminUTC(value); err != nil {
+				return nil, 0, 0, ErrAdminInvalidCommand
+			}
 			parsed, err := time.Parse(time.RFC3339Nano, value)
-			if err != nil || !strings.HasSuffix(value, "Z") || !time.Unix(0, parsed.UnixNano()).Equal(parsed) {
+			if err != nil {
 				return nil, 0, 0, ErrAdminInvalidCommand
 			}
 			nano := parsed.UnixNano()

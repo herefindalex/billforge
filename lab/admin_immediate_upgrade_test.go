@@ -3,6 +3,7 @@ package lab
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -69,6 +70,137 @@ func TestAdminImmediateUpgradeAtomicAndBoundedByPreview(t *testing.T) {
 	}
 	if changes != 1 || receipts != 1 || outbox != 1 {
 		t.Fatalf("inconsistent facts: changes=%d receipts=%d outbox=%d", changes, receipts, outbox)
+	}
+}
+
+func TestAdminImmediateUpgradeReceiptFailureRollsBackAndRecoversOriginalCommand(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	commerce, provider := filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db")
+	now := time.Now().UTC().Truncate(time.Second)
+	open := func() *Lab {
+		t.Helper()
+		l, err := Open(commerce, provider, func() time.Time { return now })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.InitAdmin(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	l := open()
+	paid := paidBasicSubscription(t, l, "immediate-receipt-failure")
+	quote, err := l.CreateQuoteForCohort(ctx, "immediate-receipt-failure", "pro", "default", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := l.BindChangeQuote(ctx, quote.ID, paid.SubscriptionID, "immediate", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(AdminChangePlanPayload{QuoteID: quote.ID, Fingerprint: binding.Fingerprint, Revision: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := l.AdminCreatePreview(ctx, "local-admin", "C04", paid.SubscriptionID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "immediate-receipt-failure-key", "C04", paid.SubscriptionID, payload, preview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables := map[string]int{
+		"immediate_changes":      1,
+		"invoices":               1,
+		"invoice_lines":          2,
+		"payment_operations":     1,
+		"supplemental_invoices":  1,
+		"outbox":                 1,
+		"audit_events":           1,
+		"admin_command_receipts": 1,
+	}
+	readCounts := func() map[string]int {
+		t.Helper()
+		counts := make(map[string]int, len(tables))
+		for table := range tables {
+			var count int
+			if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil {
+				t.Fatalf("count %s: %v", table, err)
+			}
+			counts[table] = count
+		}
+		return counts
+	}
+	before := readCounts()
+	var revisionBefore int64
+	if err := l.db.QueryRowContext(ctx, `SELECT revision FROM subscriptions WHERE id=?`, paid.SubscriptionID).Scan(&revisionBefore); err != nil {
+		t.Fatal(err)
+	}
+	capturesBefore := captureCount(t, l)
+	if _, err := l.db.ExecContext(ctx, `CREATE TEMP TRIGGER fail_immediate_receipt BEFORE INSERT ON admin_command_receipts BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AdminExecuteCommand(ctx, command.ID); err == nil {
+		t.Fatal("receipt failure unexpectedly completed immediate upgrade")
+	}
+	if held, err := l.AdminCommand(ctx, command.ID); err != nil || held.Status != "accepted" {
+		t.Fatalf("failed receipt did not retain original command %+v %v", held, err)
+	}
+	afterFailure := readCounts()
+	for table, want := range before {
+		if got := afterFailure[table]; got != want {
+			t.Fatalf("%s changed after failed receipt: got %d, want %d", table, got, want)
+		}
+	}
+	var revision int64
+	if err := l.db.QueryRowContext(ctx, `SELECT revision FROM subscriptions WHERE id=?`, paid.SubscriptionID).Scan(&revision); err != nil || revision != revisionBefore {
+		t.Fatalf("subscription revision after failed receipt = %d, want %d: %v", revision, revisionBefore, err)
+	}
+	if got := captureCount(t, l); got != capturesBefore {
+		t.Fatalf("provider captures after failed receipt = %d, want %d", got, capturesBefore)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l = open()
+	defer l.Close()
+	for i := 0; i < 2; i++ {
+		if err := l.AdminResumeAccepted(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, err = l.AdminCommand(ctx, command.ID)
+	if err != nil || command.Status != "succeeded" {
+		t.Fatalf("recovered immediate upgrade %+v %v", command, err)
+	}
+	var refs map[string]string
+	if err := json.Unmarshal(command.ResultRefs, &refs); err != nil || refs["change_id"] == "" || refs["invoice_id"] == "" || refs["operation_id"] == "" {
+		t.Fatalf("recovered result refs %+v %v", refs, err)
+	}
+	after := readCounts()
+	for table, beforeCount := range before {
+		if want := beforeCount + tables[table]; after[table] != want {
+			t.Fatalf("%s after recovery = %d, want %d", table, after[table], want)
+		}
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT revision FROM subscriptions WHERE id=?`, paid.SubscriptionID).Scan(&revision); err != nil || revision != revisionBefore+1 {
+		t.Fatalf("subscription revision after recovery = %d, want %d: %v", revision, revisionBefore+1, err)
+	}
+	if got := captureCount(t, l); got != capturesBefore {
+		t.Fatalf("recovery unexpectedly dispatched provider capture: got %d, want %d", got, capturesBefore)
+	}
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "immediate-receipt-failure-key", "C04", paid.SubscriptionID, payload, preview.ID)
+	if err != nil || !replay || replayed.ID != command.ID || replayed.Status != "succeeded" {
+		t.Fatalf("replay changed immediate upgrade %+v replay=%t err=%v", replayed, replay, err)
+	}
+	changed, err := json.Marshal(AdminChangePlanPayload{QuoteID: quote.ID, Fingerprint: binding.Fingerprint, Revision: "2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := l.AdminSubmitCommand(ctx, "local-admin", "immediate-receipt-failure-key", "C04", paid.SubscriptionID, changed, preview.ID); !errors.Is(err, ErrAdminIdempotencyConflict) {
+		t.Fatalf("changed payload reused original key: %v", err)
 	}
 }
 

@@ -59,6 +59,22 @@ var adminSchemaV8Statements = []string{
 	`CREATE INDEX admin_audit_request_id_idx ON admin_audit(request_id)`,
 }
 
+var adminSchemaV9Statements = []string{
+	`CREATE TABLE admin_external_dispatch_claims (
+		action_id TEXT NOT NULL CHECK(action_id IN ('C09','C16')),
+		target_id TEXT NOT NULL,
+		command_id TEXT NOT NULL UNIQUE REFERENCES admin_commands(id),
+		created_at TEXT NOT NULL,
+		PRIMARY KEY(action_id,target_id)
+	)`,
+	`INSERT INTO admin_external_dispatch_claims(action_id,target_id,command_id,created_at)
+	SELECT c.action_id,f.operation_id,c.id,f.created_at
+	FROM admin_fault_tickets f JOIN admin_commands c ON c.id=f.claimed_command_id
+	WHERE f.claimed_command_id IS NOT NULL
+	AND ((f.operation_kind='payment' AND c.action_id='C09') OR (f.operation_kind='refund' AND c.action_id='C16'))
+	AND c.target_id=f.operation_id`,
+}
+
 var adminSchemaStatements = []string{
 	`CREATE TABLE admin_commands (
 		id TEXT PRIMARY KEY,
@@ -317,6 +333,25 @@ func (l *Lab) InitAdmin(ctx context.Context) error {
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO admin_schema_versions(version,checksum,applied_at) VALUES(8,?,?)`, v8Want, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	} else {
+		return err
+	}
+	v9Sum := sha256.Sum256([]byte(strings.Join(adminSchemaV9Statements, ";\n")))
+	v9Want := hex.EncodeToString(v9Sum[:])
+	err = tx.QueryRowContext(ctx, `SELECT checksum FROM admin_schema_versions WHERE version=9`).Scan(&got)
+	if err == nil {
+		if got != v9Want {
+			return errors.New("admin schema v9 checksum mismatch")
+		}
+	} else if errors.Is(err, sql.ErrNoRows) {
+		for i, statement := range adminSchemaV9Statements {
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("admin schema v9 statement %d: %w", i+1, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO admin_schema_versions(version,checksum,applied_at) VALUES(9,?,?)`, v9Want, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			return err
 		}
 	} else {

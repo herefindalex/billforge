@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -61,8 +62,12 @@ func TestAdminSchemaUpgradesExistingV1(t *testing.T) {
 	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('admin_audit') WHERE name='request_id'`).Scan(&auditRequestColumns); err != nil {
 		t.Fatal(err)
 	}
-	if versions != 8 || previewClockColumns != 1 || commandRequestColumns != 1 || auditRequestColumns != 1 {
-		t.Fatalf("v1 upgrade: versions=%d clock_columns=%d command_request=%d audit_request=%d", versions, previewClockColumns, commandRequestColumns, auditRequestColumns)
+	var dispatchClaimTables int
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='admin_external_dispatch_claims'`).Scan(&dispatchClaimTables); err != nil {
+		t.Fatal(err)
+	}
+	if versions != 9 || previewClockColumns != 1 || commandRequestColumns != 1 || auditRequestColumns != 1 || dispatchClaimTables != 1 {
+		t.Fatalf("v1 upgrade: versions=%d clock_columns=%d command_request=%d audit_request=%d dispatch_claim_tables=%d", versions, previewClockColumns, commandRequestColumns, auditRequestColumns, dispatchClaimTables)
 	}
 	var legacyCommandRequest, legacyAuditRequest sql.NullString
 	if err := l.db.QueryRowContext(ctx, `SELECT request_id FROM admin_commands WHERE id='legacy-request-command'`).Scan(&legacyCommandRequest); err != nil {
@@ -111,6 +116,67 @@ func TestAdminSchemaUpgradesExistingV1(t *testing.T) {
 	}
 }
 
+func TestAdminSchemaV9BackfillsClaimedFaultOwner(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	l, err := Open(filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	paid := purchase(t, l)
+	payload := json.RawMessage(`{}`)
+	preview, err := l.AdminCreatePreview(ctx, "local-admin", "C09", paid.OperationID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "v8-claimed-fault-dispatch", "C09", paid.OperationID, payload, preview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.db.ExecContext(ctx, `INSERT INTO admin_fault_tickets(id,operation_kind,operation_id,mode,claimed_command_id,created_at) VALUES(?,?,?,?,?,?)`, "v8-claimed-fault", "payment", paid.OperationID, "lost_response", command.ID, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	var v8Checksum string
+	if err := l.db.QueryRowContext(ctx, `SELECT checksum FROM admin_schema_versions WHERE version=8`).Scan(&v8Checksum); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DROP TABLE admin_external_dispatch_claims`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM admin_schema_versions WHERE version=9`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := l.adminExternalDispatchOwner(ctx, "C09", paid.OperationID)
+	if err != nil || owner != command.ID {
+		t.Fatalf("v8 claimed fault lost its dispatch owner: owner=%q err=%v", owner, err)
+	}
+	var v8After string
+	if err := l.db.QueryRowContext(ctx, `SELECT checksum FROM admin_schema_versions WHERE version=8`).Scan(&v8After); err != nil {
+		t.Fatal(err)
+	}
+	if v8After != v8Checksum {
+		t.Fatal("v9 migration changed the v8 checksum")
+	}
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAdminSchemaUpgradeIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	l, err := Open(filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db"), nil)
@@ -128,7 +194,7 @@ func TestAdminSchemaUpgradeIsIdempotent(t *testing.T) {
 	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_schema_versions`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 8 {
+	if count != 9 {
 		t.Fatalf("schema ledger has %d rows", count)
 	}
 	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM price_versions`).Scan(&count); err != nil {

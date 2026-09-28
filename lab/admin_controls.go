@@ -254,11 +254,29 @@ func (l *Lab) claimAdminFault(ctx context.Context, commandID, kind, operationID 
 	}
 	var mode, claimedCommandID string
 	err = tx.QueryRowContext(ctx, `SELECT mode,COALESCE(claimed_command_id,'') FROM admin_fault_tickets WHERE operation_kind=? AND operation_id=?`, kind, operationID).Scan(&mode, &claimedCommandID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", tx.Commit()
-	}
-	if err != nil {
+	hasTicket := !errors.Is(err, sql.ErrNoRows)
+	if err != nil && hasTicket {
 		return "", err
+	}
+	if claimedCommandID != "" && claimedCommandID != commandID {
+		return "", ErrAdminFaultOwnedByOtherCommand
+	}
+	actionID := "C09"
+	if kind == "refund" {
+		actionID = "C16"
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO admin_external_dispatch_claims(action_id,target_id,command_id,created_at) VALUES(?,?,?,?) ON CONFLICT(action_id,target_id) DO NOTHING`, actionID, operationID, commandID, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return "", err
+	}
+	var owner string
+	if err := tx.QueryRowContext(ctx, `SELECT command_id FROM admin_external_dispatch_claims WHERE action_id=? AND target_id=?`, actionID, operationID).Scan(&owner); err != nil {
+		return "", err
+	}
+	if owner != commandID {
+		return "", ErrAdminPreviewStale
+	}
+	if !hasTicket {
+		return "", tx.Commit()
 	}
 	if claimedCommandID != "" {
 		// A restart after the claim commits must reuse this command's fault.

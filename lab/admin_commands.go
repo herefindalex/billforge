@@ -957,6 +957,9 @@ func (l *Lab) adminFailCommand(ctx context.Context, id, actorID, actionID, targe
 	if _, err := tx.ExecContext(ctx, `UPDATE admin_commands SET status='failed',error_code=?,updated_at=? WHERE id=? AND status='accepted'`, code, now, id); err != nil {
 		return err
 	}
+	if err := adminReleaseUnstartedExternalClaimTx(ctx, tx, id, actionID, targetID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO admin_audit(command_id,request_id,actor_id,action_id,target_id,reason,recorded_at) VALUES(?,COALESCE(NULLIF(?,''),(SELECT request_id FROM admin_commands WHERE id=?)),?,?,?,?,?)`, id, adminRequestID(ctx), id, actorID, actionID, targetID, code, now); err != nil {
 		return err
 	}
@@ -1015,6 +1018,9 @@ func (l *Lab) AdminRevokeUnstarted(ctx context.Context, id string) (bool, error)
 			kind = "refund"
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE admin_fault_tickets SET claimed_command_id=NULL WHERE operation_kind=? AND operation_id=? AND claimed_command_id=?`, kind, targetID, id); err != nil {
+			return false, err
+		}
+		if err := adminReleaseUnstartedExternalClaimTx(ctx, tx, id, actionID, targetID); err != nil {
 			return false, err
 		}
 	}

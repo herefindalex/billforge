@@ -774,8 +774,11 @@ func TestAdminClaimedFaultBlocksCompetingDispatchUntilOwnerResumes(t *testing.T)
 		t.Fatalf("resume competing command after owner resolves: %v", err)
 	}
 	competitor, err = l.AdminCommand(ctx, competitor.ID)
-	if err != nil || competitor.Status != "succeeded" {
+	if err != nil || competitor.Status != "failed" || competitor.ErrorCode != "PREVIEW_STALE" {
 		t.Fatalf("competing command after owner resolves %+v %v", competitor, err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, competitor.ID).Scan(&receipts); err != nil || receipts != 0 {
+		t.Fatalf("competing command received a success receipt: %d %v", receipts, err)
 	}
 	if err := l.provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM captures`).Scan(&captures); err != nil || captures != 1 {
 		t.Fatalf("provider captures after owner %d %v", captures, err)

@@ -119,6 +119,38 @@ func (l *Lab) adminExternalStatus(ctx context.Context, actionID, targetID string
 	return status, err
 }
 
+func (l *Lab) adminExternalDispatchOwner(ctx context.Context, actionID, targetID string) (string, error) {
+	var owner string
+	err := l.db.QueryRowContext(ctx, `SELECT command_id FROM admin_external_dispatch_claims WHERE action_id=? AND target_id=?`, actionID, targetID).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return owner, err
+}
+
+func (l *Lab) adminClaimExternalDispatch(ctx context.Context, commandID, actionID, targetID string) (bool, error) {
+	_, err := l.db.ExecContext(ctx, `INSERT INTO admin_external_dispatch_claims(action_id,target_id,command_id,created_at) VALUES(?,?,?,?) ON CONFLICT(action_id,target_id) DO NOTHING`, actionID, targetID, commandID, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return false, err
+	}
+	owner, err := l.adminExternalDispatchOwner(ctx, actionID, targetID)
+	return owner == commandID, err
+}
+
+func adminReleaseUnstartedExternalClaimTx(ctx context.Context, tx *sql.Tx, commandID, actionID, targetID string) error {
+	var operationTable string
+	switch actionID {
+	case "C09":
+		operationTable = "payment_operations"
+	case "C16":
+		operationTable = "refund_operations"
+	default:
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `DELETE FROM admin_external_dispatch_claims WHERE action_id=? AND target_id=? AND command_id=? AND EXISTS (SELECT 1 FROM `+operationTable+` WHERE id=? AND status='created')`, actionID, targetID, commandID, targetID)
+	return err
+}
+
 func (l *Lab) adminExternalPreviewCurrent(ctx context.Context, commandID, previewID, actionID, targetID, businessTime string) (bool, error) {
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -192,6 +224,18 @@ func (l *Lab) adminExecuteExternalCommand(ctx context.Context, commandID string)
 				return l.adminFailStaleExternalDispatch(ctx, commandID, actorID, actionID, targetID)
 			}
 		}
+		if operationStatus != "created" || status != "accepted" {
+			claimed, err := l.adminClaimExternalDispatch(ctx, commandID, actionID, targetID)
+			if err != nil {
+				return AdminCommand{}, err
+			}
+			if !claimed {
+				if status == "accepted" {
+					return l.adminFailStaleExternalDispatch(ctx, commandID, actorID, actionID, targetID)
+				}
+				return AdminCommand{}, ErrConflict
+			}
+		}
 		if operationStatus != "succeeded" && operationStatus != "definitively_failed" {
 			if err := l.adminRenewLease(ctx, commandID); err != nil {
 				return AdminCommand{}, err
@@ -203,6 +247,9 @@ func (l *Lab) adminExecuteExternalCommand(ctx context.Context, commandID string)
 					kind = "refund"
 				}
 				fault, err = l.claimAdminFault(ctx, commandID, kind, targetID)
+				if errors.Is(err, ErrAdminPreviewStale) {
+					return l.adminFailStaleExternalDispatch(ctx, commandID, actorID, actionID, targetID)
+				}
 				if err != nil {
 					return AdminCommand{}, err
 				}

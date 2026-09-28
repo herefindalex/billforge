@@ -108,7 +108,7 @@ func (l *Lab) PublishMeteredPrice(ctx context.Context, spec MeteredPriceSpec) (P
 func (l *Lab) publishMeteredPriceTx(ctx context.Context, tx *sql.Tx, at time.Time, spec MeteredPriceSpec) (PriceTerms, error) {
 	if !catalogCode.MatchString(spec.ID) || !catalogCode.MatchString(spec.PlanID) || !catalogCode.MatchString(spec.MeterID) ||
 		spec.Version <= 0 || !minimumUpfrontFits(spec.FixedMinor, spec.SeatMinor) || spec.IncludedQuantity <= 0 ||
-		spec.UsageRateNum <= 0 || spec.UsageRateDen <= 0 || !unixNanoTimeFits(spec.EffectiveFrom) || !unixNanoTimeFits(at) {
+		spec.UsageRateNum <= 0 || spec.UsageRateDen <= 0 || !unixNanoTimeFits(spec.EffectiveFrom) {
 		return PriceTerms{}, ErrConflict
 	}
 	var registered string
@@ -127,6 +127,9 @@ func (l *Lab) publishMeteredPriceTx(ctx context.Context, tx *sql.Tx, at time.Tim
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return PriceTerms{}, err
+	}
+	if !unixNanoTimeFits(at) {
+		return PriceTerms{}, ErrConflict
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO price_versions(id,plan_id,version,currency,fixed_amount_minor,published_at,checksum,publication_state,effective_from) VALUES(?,?,?,'USD',?,0,'','draft',?)`, spec.ID, spec.PlanID, spec.Version, spec.FixedMinor, spec.EffectiveFrom.UTC().UnixNano()); err != nil {
 		return PriceTerms{}, err

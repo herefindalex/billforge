@@ -137,7 +137,7 @@ func loadContract(ctx context.Context, q rowQuerier, id string) (ContractState, 
 }
 
 func (l *Lab) publishContractTx(ctx context.Context, tx *sql.Tx, spec ContractSpec) (ContractState, error) {
-	if spec.ID == "" || spec.CustomerID == "" || spec.Version <= 0 || spec.BasePriceVersionID == "" || spec.SeatMinor <= 0 || !minimumUpfrontFits(spec.FixedMinor, spec.SeatMinor) || spec.EffectiveFrom.IsZero() || !spec.EffectiveTo.After(spec.EffectiveFrom) {
+	if spec.ID == "" || spec.CustomerID == "" || spec.Version <= 0 || spec.BasePriceVersionID == "" || spec.SeatMinor <= 0 || !minimumUpfrontFits(spec.FixedMinor, spec.SeatMinor) || !unixNanoTimeFits(spec.EffectiveFrom) || !unixNanoTimeFits(spec.EffectiveTo) || !spec.EffectiveTo.After(spec.EffectiveFrom) {
 		return ContractState{}, ErrConflict
 	}
 	checksum := hash(spec.ID, spec.CustomerID, spec.Version, spec.BasePriceVersionID, spec.FixedMinor, spec.SeatMinor, spec.EffectiveFrom.UTC().UnixNano(), spec.EffectiveTo.UTC().UnixNano(), spec.PostContractPriceVersionID, "net30")
@@ -151,6 +151,10 @@ func (l *Lab) publishContractTx(ctx context.Context, tx *sql.Tx, spec ContractSp
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return ContractState{}, err
+	}
+	publishedAt := l.now().UTC()
+	if !unixNanoTimeFits(publishedAt) {
+		return ContractState{}, ErrConflict
 	}
 	var basePlan string
 	if err := tx.QueryRowContext(ctx, `SELECT plan_id FROM price_versions WHERE id=? AND publication_state='published'`, spec.BasePriceVersionID).Scan(&basePlan); err != nil {
@@ -175,7 +179,7 @@ func (l *Lab) publishContractTx(ctx context.Context, tx *sql.Tx, spec ContractSp
 	if spec.PostContractPriceVersionID != "" {
 		post = spec.PostContractPriceVersionID
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO contract_versions(id,customer_id,version,base_price_version_id,fixed_minor,seat_minor,payment_days,effective_from,effective_to,post_price_version_id,checksum,published_at) VALUES(?,?,?,?,?,?,30,?,?,?,?,?)`, spec.ID, spec.CustomerID, spec.Version, spec.BasePriceVersionID, spec.FixedMinor, spec.SeatMinor, spec.EffectiveFrom.UTC().UnixNano(), spec.EffectiveTo.UTC().UnixNano(), post, checksum, l.now().UTC().UnixNano()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO contract_versions(id,customer_id,version,base_price_version_id,fixed_minor,seat_minor,payment_days,effective_from,effective_to,post_price_version_id,checksum,published_at) VALUES(?,?,?,?,?,?,30,?,?,?,?,?)`, spec.ID, spec.CustomerID, spec.Version, spec.BasePriceVersionID, spec.FixedMinor, spec.SeatMinor, spec.EffectiveFrom.UTC().UnixNano(), spec.EffectiveTo.UTC().UnixNano(), post, checksum, publishedAt.UnixNano()); err != nil {
 		return ContractState{}, err
 	}
 	return loadContract(ctx, tx, spec.ID)

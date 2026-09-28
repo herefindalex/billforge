@@ -137,7 +137,7 @@ func (l *Lab) RecordUsage(ctx context.Context, source, eventID, subID, meterID s
 }
 
 func (l *Lab) recordUsageTx(ctx context.Context, tx *sql.Tx, at time.Time, source, eventID, subID, meterID string, quantity int64, eventAt time.Time) (UsageEvent, error) {
-	if source == "" || eventID == "" || subID == "" || meterID == "" || quantity <= 0 || eventAt.IsZero() {
+	if source == "" || eventID == "" || subID == "" || meterID == "" || quantity <= 0 || !unixNanoTimeFits(eventAt) {
 		return UsageEvent{}, ErrConflict
 	}
 	var err error
@@ -164,6 +164,9 @@ func (l *Lab) recordUsageTx(ctx context.Context, tx *sql.Tx, at time.Time, sourc
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return UsageEvent{}, err
+	}
+	if !unixNanoTimeFits(at) {
+		return UsageEvent{}, ErrConflict
 	}
 	if err := ensureCommerceWriter(ctx, tx, tenant); err != nil {
 		return UsageEvent{}, err
@@ -247,6 +250,9 @@ func (l *Lab) recordUsageAdjustmentTx(ctx context.Context, tx *sql.Tx, at time.T
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return UsageEvent{}, err
+	}
+	if !unixNanoTimeFits(at) {
+		return UsageEvent{}, ErrConflict
 	}
 	var already int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(-quantity),0) FROM usage_events WHERE tenant_id=? AND correction_source=? AND correction_event_id=?`, tenant, originalSource, originalEventID).Scan(&already); err != nil {

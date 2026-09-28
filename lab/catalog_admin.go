@@ -34,7 +34,7 @@ func (l *Lab) PublishProPrice(ctx context.Context, spec ProPriceSpec) (PriceTerm
 }
 
 func (l *Lab) publishProPriceTx(ctx context.Context, tx *sql.Tx, at time.Time, spec ProPriceSpec) (PriceTerms, error) {
-	if spec.ID == "" || spec.Version <= 0 || spec.SeatMinor <= 0 || !minimumUpfrontFits(spec.FixedMinor, spec.SeatMinor) || spec.IncludedTasks < 0 || spec.UsageRateNum < 0 || spec.UsageRateDen <= 0 || !unixNanoTimeFits(spec.EffectiveFrom) || !unixNanoTimeFits(at) {
+	if spec.ID == "" || spec.Version <= 0 || spec.SeatMinor <= 0 || !minimumUpfrontFits(spec.FixedMinor, spec.SeatMinor) || spec.IncludedTasks < 0 || spec.UsageRateNum < 0 || spec.UsageRateDen <= 0 || !unixNanoTimeFits(spec.EffectiveFrom) {
 		return PriceTerms{}, ErrConflict
 	}
 	checksum := hash(spec.ID, spec.Version, "USD", spec.FixedMinor, "seats", spec.SeatMinor, "tasks", spec.IncludedTasks, spec.UsageRateNum, spec.UsageRateDen, spec.EffectiveFrom.UTC().UnixNano())
@@ -48,6 +48,9 @@ func (l *Lab) publishProPriceTx(ctx context.Context, tx *sql.Tx, at time.Time, s
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return PriceTerms{}, err
+	}
+	if !unixNanoTimeFits(at) {
+		return PriceTerms{}, ErrConflict
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO price_versions(id,plan_id,version,currency,fixed_amount_minor,published_at,checksum,publication_state,effective_from) VALUES(?,'pro',?,'USD',?,0,'','draft',?)`, spec.ID, spec.Version, spec.FixedMinor, spec.EffectiveFrom.UTC().UnixNano()); err != nil {
 		return PriceTerms{}, err

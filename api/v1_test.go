@@ -201,6 +201,29 @@ func TestV1LegacyClientRejectsUnshownAITokenCharge(t *testing.T) {
 	if status != 200 || results[0].(map[string]any)["status"] != "rejected" || results[1].(map[string]any)["status"] != "accepted" {
 		t.Fatalf("usage per-item result: %d %+v", status, usage)
 	}
+	withinPeriod := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	// This historical timestamp differs by 2^64 nanoseconds and wraps into the
+	// current billing period if the domain converts it without checking range.
+	tooEarly := time.Unix(withinPeriod.Unix()-18446744073, int64(withinPeriod.Nanosecond())-709551616).UTC()
+	if tooEarly.UnixNano() != withinPeriod.UnixNano() {
+		t.Fatalf("invalid wrapped-time fixture: %s", tooEarly)
+	}
+	status, usage = apiRequest(t, h, "POST", "/v1/usage-events", map[string]any{"events": []any{
+		map[string]any{"tenant_id": "ai-customer", "subscription_id": accepted["subscription_id"], "source": "ai_gateway", "event_id": "event-wrap", "meter_id": "ai_tokens", "quantity": 105, "event_at": tooEarly.Format(time.RFC3339Nano)},
+	}}, nil)
+	results = usage["results"].([]any)
+	if status != 200 || results[0].(map[string]any)["status"] != "rejected" || results[0].(map[string]any)["error"] != "EVENT_CONFLICT" {
+		t.Fatalf("out-of-range usage accepted through v1: %d %+v", status, usage)
+	}
+	state, err = l.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range state.UsageEvents {
+		if event.EventID == "event-wrap" {
+			t.Fatalf("out-of-range usage persisted as current-period event: %+v", event)
+		}
+	}
 }
 
 func TestV1InternalContractRequiresCredentialAndCapability(t *testing.T) {

@@ -61,4 +61,41 @@ func TestCatalogWritesRejectTimesOutsideUnixNanosecondRange(t *testing.T) {
 			t.Fatalf("price persisted with out-of-range publication clock: count=%d err=%v", count, err)
 		}
 	})
+
+	t.Run("existing publication replay", func(t *testing.T) {
+		l, clock := openChangingLab(t)
+		ctx := context.Background()
+		spec := proV2Spec()
+		if _, err := l.PublishProPrice(ctx, spec); err != nil {
+			t.Fatal(err)
+		}
+		*clock = farFuture
+		if _, err := l.PublishProPrice(ctx, spec); err != nil {
+			t.Fatalf("existing price replay should not depend on the current clock: %v", err)
+		}
+		var count int
+		if err := l.db.QueryRow(`SELECT COUNT(*) FROM price_versions WHERE id=?`, spec.ID).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("price replay count=%d err=%v", count, err)
+		}
+	})
+
+	t.Run("existing metered publication replay", func(t *testing.T) {
+		l, clock := openChangingLab(t)
+		ctx := context.Background()
+		if err := l.RegisterMeter(ctx, MeterSpec{ID: "ai_tokens", Source: "ai_gateway", Unit: "token", SchemaVersion: 1}); err != nil {
+			t.Fatal(err)
+		}
+		spec := MeteredPriceSpec{ID: "ai_v1", PlanID: "ai", Version: 1, FixedMinor: 3000, MeterID: "ai_tokens", IncludedQuantity: 100, UsageRateNum: 1, UsageRateDen: 5, EffectiveFrom: fixedNow}
+		if _, err := l.PublishMeteredPrice(ctx, spec); err != nil {
+			t.Fatal(err)
+		}
+		*clock = farFuture
+		if _, err := l.PublishMeteredPrice(ctx, spec); err != nil {
+			t.Fatalf("existing metered price replay should not depend on the current clock: %v", err)
+		}
+		var count int
+		if err := l.db.QueryRow(`SELECT COUNT(*) FROM price_versions WHERE id=?`, spec.ID).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("metered price replay count=%d err=%v", count, err)
+		}
+	})
 }

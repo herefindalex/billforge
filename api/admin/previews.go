@@ -42,8 +42,10 @@ func (s *Server) createPreview(w http.ResponseWriter, r *http.Request) {
 			apiError(w, http.StatusNotFound, "NOT_FOUND", "Source record not found")
 		case errors.Is(err, lab.ErrAccountMigrationStopped):
 			apiError(w, http.StatusConflict, "ACCOUNT_MIGRATION_STOPPED", "Account migration is stopped; new commerce writes are disabled")
-		case errors.Is(err, lab.ErrConflict), errors.Is(err, lab.ErrExpired):
-			apiError(w, http.StatusConflict, "PREVIEW_UNAVAILABLE", "Source changed, expired, or has no eligible items")
+		case errors.Is(err, lab.ErrExpired):
+			apiError(w, http.StatusConflict, "QUOTE_EXPIRED", "Quote expired; create a new quote")
+		case errors.Is(err, lab.ErrConflict):
+			apiError(w, http.StatusConflict, "PREVIEW_UNAVAILABLE", "Source changed or has no eligible items")
 		case errors.Is(err, lab.ErrAdminUnsupportedAction):
 			apiError(w, http.StatusUnprocessableEntity, "ACTION_UNAVAILABLE", "This preview is not available yet")
 		case errors.Is(err, lab.ErrAdminInvalidCommand):

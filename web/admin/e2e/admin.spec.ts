@@ -1374,6 +1374,47 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     }
   })
 
+  test('an expired quote stays immutable and offers a new quote for the same customer', async ({ page }) => {
+    await signIn(page)
+    const customerID = `expired-quote-${randomUUID()}`
+    await page.goto(`${app.baseURL}/admin/quotes/new`)
+    await page.getByRole('textbox', { name: /客戶 ID/ }).fill(customerID)
+    await page.getByRole('textbox', { name: /方案 ID/ }).fill('basic')
+    await page.getByRole('button', { name: '建立報價' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+
+    const quoteID = scalar('SELECT id FROM quotes WHERE customer_id=? ORDER BY rowid DESC LIMIT 1', customerID)
+    const expiry = BigInt(scalar('SELECT expires_at FROM quotes WHERE id=?', quoteID))
+    const expiredAt = new Date(Number(expiry / 1_000_000n) + 1000).toISOString()
+    const session = await (await page.request.get(`${app.baseURL}/admin/api/session`)).json() as { csrf_token: string }
+    async function setClock(mode: 'fixed' | 'real', value?: string) {
+      const response = await page.request.post(`${app.baseURL}/admin/api/commands`, {
+        headers: { 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID(), Origin: app.baseURL },
+        data: { action_id: 'C46', target_id: '', payload: mode === 'fixed' ? { mode, value_utc: value } : { mode } },
+      })
+      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
+    }
+
+    try {
+      await setClock('fixed', expiredAt)
+      await page.goto(`${app.baseURL}/admin/quotes/${quoteID}/accept`)
+      await expect(page.getByRole('row', { name: /報價金額/ })).toContainText('USD 20.00')
+      const previewResponse = page.waitForResponse((response) => response.url().endsWith('/admin/api/previews') && response.request().method() === 'POST')
+      await page.getByRole('button', { name: '預覽接受' }).click()
+      const response = await previewResponse
+      expect(response.status()).toBe(409)
+      expect((await response.json()).error.code).toBe('QUOTE_EXPIRED')
+      await expect(page.getByText('報價已過期')).toBeVisible()
+      await expect(page.getByRole('button', { name: '建立新報價' })).toBeVisible()
+      expect(count('SELECT COUNT(*) FROM subscriptions WHERE quote_id=?', quoteID)).toBe(0)
+      expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C02' AND target_id=?", quoteID)).toBe(0)
+      await page.getByRole('button', { name: '建立新報價' }).click()
+      await expect(page.getByRole('textbox', { name: /客戶 ID/ })).toHaveValue(customerID)
+    } finally {
+      await setClock('real')
+    }
+  })
+
   test('a concurrent quote acceptance shows its latest state without a second obligation', async ({ page }) => {
     await signIn(page)
     const customerID = `quote-stale-${randomUUID()}`

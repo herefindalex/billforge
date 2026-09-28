@@ -123,7 +123,18 @@ export default function AcceptQuote({ session }: { session: Session }) {
       { key: 'next', label: '下一步', children: quote.isFetching ? '正在確認最新狀態…' : quote.data.Accepted ? '報價已接受；請檢查既有訂閱與命令。' : '來源或預覽期限已變更，請重新預覽後再次確認。' },
     ]} />} />}
     {pending && !commandID && <Alert type="warning" showIcon className="result-card" message="原命令的結果尚未確認" description={<Space direction="vertical"><span>重試會使用相同 request key 查詢同一命令。</span><Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>查詢原命令</Button></Space>} />}
-    {createPreview.isError && <Alert type="error" showIcon className="result-card" message="無法建立預覽" description={createPreview.error.message} />}
+      {createPreview.isError && <Alert
+        type="error"
+        showIcon
+        className="result-card"
+        message={createPreview.error instanceof HttpError && createPreview.error.code === 'QUOTE_EXPIRED' ? '報價已過期' : '無法建立預覽'}
+        description={createPreview.error.message}
+        action={createPreview.error instanceof HttpError && createPreview.error.code === 'QUOTE_EXPIRED' ? <Button onClick={() => {
+          const params = new URLSearchParams({ customer_id: quote.data.CustomerID })
+          if (quote.data.ContractVersionID) params.set('contract_version_id', quote.data.ContractVersionID)
+          navigate(`/quotes/new?${params.toString()}`)
+        }}>建立新報價</Button> : undefined}
+      />}
     {preview && !commandID && <Card title="操作預覽" className="result-card">
       <PreviewWarnings preview={preview} expired={previewExpired} />
       <Descriptions column={1} bordered size="small" items={[

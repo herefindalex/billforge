@@ -42,7 +42,10 @@ func (l *Lab) loadSchedulePlanSnapshot(ctx context.Context, tx *sql.Tx, at time.
 	if err := ensureCommerceWriter(ctx, tx, subCustomer); err != nil {
 		return result, err
 	}
-	if quoteCustomer != subCustomer || boundSub != subID || mode != "next_period" || savedFingerprint != input.Fingerprint || boundRevision != revision || currentRevision != revision || status != "active" || !at.Before(time.Unix(0, quoteExpiry)) {
+	if quoteCustomer != subCustomer || boundSub != subID || mode != "next_period" || savedFingerprint != input.Fingerprint {
+		return result, ErrChangeQuoteBindingMismatch
+	}
+	if boundRevision != revision || currentRevision != revision || status != "active" || !at.Before(time.Unix(0, quoteExpiry)) {
 		return result, ErrConflict
 	}
 	if err := ensureNoUnresolvedPriceMigration(ctx, tx, subID); err != nil {

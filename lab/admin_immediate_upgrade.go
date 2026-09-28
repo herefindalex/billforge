@@ -40,7 +40,10 @@ func (l *Lab) loadImmediateUpgradeSnapshot(ctx context.Context, tx *sql.Tx, at t
 	if err := ensureCommerceWriter(ctx, tx, customer); err != nil {
 		return snapshot, err
 	}
-	if quoteCustomer != customer || boundSub != subID || mode != "immediate" || savedFingerprint != input.Fingerprint || boundRevision != revision || currentRevision != revision || status != "active" || !at.Before(time.Unix(0, quoteExpiry)) {
+	if quoteCustomer != customer || boundSub != subID || mode != "immediate" || savedFingerprint != input.Fingerprint {
+		return snapshot, ErrChangeQuoteBindingMismatch
+	}
+	if boundRevision != revision || currentRevision != revision || status != "active" || !at.Before(time.Unix(0, quoteExpiry)) {
 		return snapshot, ErrConflict
 	}
 	var fromPlan string

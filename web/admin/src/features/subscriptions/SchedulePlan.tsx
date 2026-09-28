@@ -144,7 +144,15 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
     ]} />} />}
     {previewInvalidated && !preview && !pending && !commandID && <Alert type="warning" showIcon className="result-card" message="變更輸入已修改，請重新預覽" />}
     {pending && !commandID && <Alert type="warning" showIcon className="result-card" message="原排程命令的結果尚未確認" description={<Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>用原 request key 查詢</Button>} />}
-    {createPreview.isError && !previewInvalidated && <Alert type="error" showIcon className="result-card" message="無法建立預覽" description={createPreview.error.message} />}
+    {createPreview.isError && !previewInvalidated && <Alert
+      type="error"
+      showIcon
+      className="result-card"
+      message={createPreview.error instanceof HttpError && createPreview.error.code === 'CHANGE_QUOTE_BINDING_MISMATCH' ? '報價與綁定資料不一致' : '無法建立預覽'}
+      description={createPreview.error instanceof HttpError && createPreview.error.code === 'CHANGE_QUOTE_BINDING_MISMATCH'
+        ? '報價 ID、綁定 Fingerprint 或訂閱不相符。請從正確的報價詳情重新進入方案變更。'
+        : createPreview.error.message}
+    />}
     {preview && <Card title="變更預覽" className="result-card">
       <PreviewWarnings preview={preview} expired={previewExpired} />
       <Descriptions column={1} bordered size="small" items={[

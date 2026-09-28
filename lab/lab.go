@@ -15,12 +15,13 @@ import (
 )
 
 var (
-	ErrConflict        = errors.New("conflicting identity or payload")
-	ErrExpired         = errors.New("quote expired")
-	ErrPeriodEnded     = errors.New("service period ended")
-	ErrLateNeedsReview = errors.New("late payment requires service correction review")
-	ErrInjectedCrash   = errors.New("injected crash after provider capture")
-	ErrPaymentUnknown  = errors.New("provider response lost; payment outcome unknown")
+	ErrConflict                   = errors.New("conflicting identity or payload")
+	ErrChangeQuoteBindingMismatch = fmt.Errorf("%w: quote does not match its change binding", ErrConflict)
+	ErrExpired                    = errors.New("quote expired")
+	ErrPeriodEnded                = errors.New("service period ended")
+	ErrLateNeedsReview            = errors.New("late payment requires service correction review")
+	ErrInjectedCrash              = errors.New("injected crash after provider capture")
+	ErrPaymentUnknown             = errors.New("provider response lost; payment outcome unknown")
 )
 
 type Clock func() time.Time

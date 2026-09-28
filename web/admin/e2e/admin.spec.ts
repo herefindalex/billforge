@@ -1197,6 +1197,54 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     }
   })
 
+  test('a different seat price quote cannot use the original plan binding fingerprint', async ({ page }) => {
+    await signIn(page)
+    const customerID = `plan-binding-${randomUUID()}`
+    const { subscriptionID } = await createPaidSubscription(page, customerID, 'basic')
+    const revision = scalar('SELECT revision FROM subscriptions WHERE id=?', subscriptionID)
+
+    async function createBoundQuote(seats: string) {
+      await page.goto(`${app.baseURL}/admin/quotes/new`)
+      await page.getByRole('button', { name: '建立另一筆報價' }).click()
+      await page.getByRole('textbox', { name: /客戶 ID/ }).fill(customerID)
+      await page.getByRole('textbox', { name: /方案 ID/ }).fill('pro')
+      await page.getByRole('textbox', { name: /席次/ }).fill(seats)
+      await page.getByRole('checkbox', { name: '這是現有訂閱的變更報價' }).check()
+      await page.getByRole('textbox', { name: /訂閱 ID/ }).fill(subscriptionID)
+      await page.getByRole('combobox', { name: /變更方式/ }).click()
+      await page.locator('.ant-select-dropdown:visible').getByText('下期變更', { exact: true }).click()
+      await page.getByRole('textbox', { name: /目前 Revision/ }).fill(revision)
+      await page.getByRole('button', { name: '建立報價' }).click()
+      await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+      return scalar('SELECT q.id FROM quotes q JOIN change_quote_bindings b ON b.quote_id=q.id WHERE b.subscription_id=? ORDER BY q.rowid DESC LIMIT 1', subscriptionID)
+    }
+
+    const fiveSeatQuoteID = await createBoundQuote('5')
+    const sevenSeatQuoteID = await createBoundQuote('7')
+    expect(scalar('SELECT seat_quantity FROM quotes WHERE id=?', fiveSeatQuoteID)).toBe('5')
+    expect(scalar('SELECT seat_quantity FROM quotes WHERE id=?', sevenSeatQuoteID)).toBe('7')
+    expect(scalar('SELECT amount_minor FROM quotes WHERE id=?', fiveSeatQuoteID)).toBe('10000')
+    expect(scalar('SELECT amount_minor FROM quotes WHERE id=?', sevenSeatQuoteID)).toBe('12000')
+    await page.goto(`${app.baseURL}/admin/quotes/${fiveSeatQuoteID}/accept`)
+    await page.getByRole('button', { name: '前往下期變更' }).click()
+    const quoteField = page.getByRole('textbox', { name: '已綁定的報價 ID' })
+    await expect(quoteField).toHaveValue(fiveSeatQuoteID)
+    const originalFingerprint = await page.getByRole('textbox', { name: '變更綁定 Fingerprint' }).inputValue()
+    await quoteField.fill(sevenSeatQuoteID)
+
+    const previewResponse = page.waitForResponse((response) => response.url().endsWith('/admin/api/previews') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: '預覽下期變更' }).click()
+    const response = await previewResponse
+    expect(response.status()).toBe(409)
+    expect((await response.json()).error.code).toBe('CHANGE_QUOTE_BINDING_MISMATCH')
+    await expect(page.getByText('報價與綁定資料不一致')).toBeVisible()
+    await expect(page.getByText(/報價 ID、綁定 Fingerprint 或訂閱不相符/)).toBeVisible()
+    await expect(quoteField).toHaveValue(sevenSeatQuoteID)
+    await expect(page.getByRole('textbox', { name: '變更綁定 Fingerprint' })).toHaveValue(originalFingerprint)
+    expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(0)
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(0)
+  })
+
   test('a concurrent subscription change preserves the original plan binding intent', async ({ page }) => {
     await signIn(page)
     const customerID = `plan-stale-${randomUUID()}`

@@ -40,7 +40,7 @@ func TestAdminImmediateUpgradeAtomicAndBoundedByPreview(t *testing.T) {
 	if err := json.Unmarshal(preview.Impact, &impact); err != nil {
 		t.Fatal(err)
 	}
-	if impact["net_minor"] == "" || impact["target_price_version_id"] != "pro-v1" {
+	if impact["net_minor"] == "" || impact["target_price_version_id"] != "pro-v1" || impact["due_now_estimated"] != "true" || impact["estimated_amount_minor"] != impact["net_minor"] || impact["estimated_at"] != now.Format(time.RFC3339Nano) {
 		t.Fatalf("wrong impact: %+v", impact)
 	}
 	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "immediate-upgrade-001", "C04", sub.SubscriptionID, payload, preview.ID)
@@ -55,7 +55,7 @@ func TestAdminImmediateUpgradeAtomicAndBoundedByPreview(t *testing.T) {
 	if err := json.Unmarshal(command.ResultRefs, &refs); err != nil {
 		t.Fatal(err)
 	}
-	if refs["change_id"] == "" || refs["invoice_id"] == "" || refs["operation_id"] == "" || refs["net_minor"] != impact["net_minor"] {
+	if refs["change_id"] == "" || refs["invoice_id"] == "" || refs["operation_id"] == "" || refs["net_minor"] != impact["net_minor"] || refs["pending_amount_minor"] != impact["net_minor"] || refs["estimated_amount_minor"] != impact["net_minor"] || refs["estimated_at"] != impact["estimated_at"] {
 		t.Fatalf("wrong refs: %+v", refs)
 	}
 	var changes, receipts, outbox int
@@ -233,11 +233,14 @@ func TestAdminImmediateUpgradePreviewAmountOnlyAllowsDecrease(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			amount := func(preview AdminPreview) int64 {
+			amount := func(preview AdminPreview, estimatedAt time.Time) int64 {
 				t.Helper()
 				var impact map[string]string
 				if err := json.Unmarshal(preview.Impact, &impact); err != nil {
 					t.Fatal(err)
+				}
+				if impact["due_now_estimated"] != "true" || impact["estimated_at"] != estimatedAt.Format(time.RFC3339Nano) || impact["estimated_amount_minor"] != impact["net_minor"] {
+					t.Fatalf("wrong estimate provenance: %+v", impact)
 				}
 				net, err := strconv.ParseInt(impact["net_minor"], 10, 64)
 				if err != nil {
@@ -249,13 +252,13 @@ func TestAdminImmediateUpgradePreviewAmountOnlyAllowsDecrease(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			originalNet := amount(original)
+			originalNet := amount(original, *clock)
 			*clock = clock.Add(tc.shift)
 			fresh, err := l.AdminCreatePreview(ctx, "local-admin", "C04", paid.SubscriptionID, payload)
 			if err != nil {
 				t.Fatal(err)
 			}
-			freshNet := amount(fresh)
+			freshNet := amount(fresh, *clock)
 			if tc.wantStale && freshNet <= originalNet || !tc.wantStale && freshNet >= originalNet {
 				t.Fatalf("amount did not move as expected: original=%d fresh=%d", originalNet, freshNet)
 			}
@@ -277,6 +280,24 @@ func TestAdminImmediateUpgradePreviewAmountOnlyAllowsDecrease(t *testing.T) {
 				}
 			} else if command.Status != "succeeded" || changes != 1 {
 				t.Fatalf("decreased amount was rejected: %+v changes=%d", command, changes)
+			} else {
+				var refs map[string]string
+				if err := json.Unmarshal(command.ResultRefs, &refs); err != nil {
+					t.Fatal(err)
+				}
+				if refs["estimated_amount_minor"] != strconv.FormatInt(originalNet, 10) || refs["pending_amount_minor"] != strconv.FormatInt(freshNet, 10) || refs["net_minor"] != refs["pending_amount_minor"] || refs["estimated_at"] != time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano) {
+					t.Fatalf("estimated and pending amounts were not separated: %+v", refs)
+				}
+				var invoiceAmount, paymentAmount int64
+				if err := l.db.QueryRowContext(ctx, `SELECT SUM(amount_minor) FROM invoice_lines WHERE invoice_id=?`, refs["invoice_id"]).Scan(&invoiceAmount); err != nil {
+					t.Fatal(err)
+				}
+				if err := l.db.QueryRowContext(ctx, `SELECT amount_minor FROM payment_operations WHERE id=?`, refs["operation_id"]).Scan(&paymentAmount); err != nil {
+					t.Fatal(err)
+				}
+				if invoiceAmount != freshNet || paymentAmount != freshNet {
+					t.Fatalf("pending amount %d differs from invoice %d or operation %d", freshNet, invoiceAmount, paymentAmount)
+				}
 			}
 		})
 	}

@@ -118,7 +118,9 @@ func (l *Lab) loadImmediateUpgradeSnapshot(ctx context.Context, tx *sql.Tx, at t
 		"subscription_id": subID, "quote_id": input.QuoteID, "target_price_version_id": selectedPrice,
 		"seats": strconv.FormatInt(seats, 10), "old_credit_minor": strconv.FormatInt(oldCredit, 10),
 		"new_charge_minor": strconv.FormatInt(newCharge, 10), "net_minor": strconv.FormatInt(net, 10),
-		"currency": oldTerms.Currency, "period_end": time.Unix(0, periodEnd).UTC().Format(time.RFC3339Nano),
+		"due_now_estimated": "true", "estimated_at": at.Format(time.RFC3339Nano),
+		"estimated_amount_minor": strconv.FormatInt(net, 10),
+		"currency":               oldTerms.Currency, "period_end": time.Unix(0, periodEnd).UTC().Format(time.RFC3339Nano),
 	})
 	return snapshot, err
 }
@@ -215,5 +217,7 @@ func (l *Lab) executeImmediateUpgradeTx(ctx context.Context, tx *sql.Tx, command
 		"change_id": change.ID, "invoice_id": change.InvoiceID, "operation_id": change.OperationID,
 		"subscription_id": subID, "target_price_version_id": change.TargetPriceVersionID,
 		"net_minor": strconv.FormatInt(change.QuotedAmountMinor, 10), "currency": impact["currency"],
+		"estimated_amount_minor": impact["net_minor"], "estimated_at": impact["estimated_at"],
+		"pending_amount_minor": strconv.FormatInt(change.QuotedAmountMinor, 10),
 	}, nil
 }

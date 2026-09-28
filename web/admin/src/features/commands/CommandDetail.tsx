@@ -3,6 +3,7 @@ import { Alert, Button, Card, Descriptions, Result, Skeleton, Space, Tag, Typogr
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, type Session } from '../../api/client'
 import ExternalOperationOutcome from '../../components/ExternalOperationOutcome'
+import Money from '../../components/Money'
 
 const jobActions = new Set(['C13', 'C30', 'C32', 'C44', 'C45'])
 
@@ -37,6 +38,11 @@ export default function CommandDetail({ session }: { session: Session }) {
       { key: 'action', label: '操作', children: item.action_id },
       { key: 'target', label: '對象', children: item.target_id || '—' },
       { key: 'status', label: '狀態', children: <Tag>{item.status}</Tag> },
+      ...(item.action_id === 'C04' && item.status === 'succeeded' ? [
+        { key: 'upgrade_estimate', label: '預覽估算金額', children: item.result_refs?.estimated_amount_minor ? <Money minor={item.result_refs.estimated_amount_minor} currency={item.result_refs.currency} /> : '歷史命令未記錄' },
+        { key: 'upgrade_pending', label: '實際待付款義務', children: <Money minor={item.result_refs?.pending_amount_minor ?? item.result_refs?.net_minor} currency={item.result_refs?.currency} /> },
+        { key: 'upgrade_estimated_at', label: '估算時刻', children: item.result_refs?.estimated_at ? new Date(item.result_refs.estimated_at).toLocaleString() : '歷史命令未記錄' },
+      ] : []),
       { key: 'result', label: '結果參照', children: <pre>{JSON.stringify(item.result_refs ?? {}, null, 2)}</pre> },
       { key: 'error', label: '錯誤', children: item.error_code || '無' },
       { key: 'created', label: '建立時間', children: new Date(item.created_at).toLocaleString() },

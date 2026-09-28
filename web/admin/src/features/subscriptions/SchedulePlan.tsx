@@ -89,7 +89,16 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
     const intent: Pending = { key: crypto.randomUUID(), previewID: preview.preview_id, payload }
     modal.confirm({
       title: immediate ? '確認立即升級' : '確認下期方案變更',
-      content: <Space direction="vertical"><span>訂閱：{id}</span><span>報價：{payload.quote_id}</span><span>{immediate ? '目前帳期結束' : '生效時間'}：{new Date(preview.impact.effective_at ?? preview.impact.period_end).toLocaleString()}</span><span>價格版本：{preview.impact.price_version_id ?? preview.impact.target_price_version_id}</span><Money minor={preview.impact.amount_minor ?? preview.impact.net_minor} currency={preview.impact.currency} /></Space>,
+      content: <Space direction="vertical">
+        <span>訂閱：{id}</span><span>報價：{payload.quote_id}</span>
+        <span>{immediate ? '目前帳期結束' : '生效時間'}：{new Date(preview.impact.effective_at ?? preview.impact.period_end).toLocaleString()}</span>
+        <span>價格版本：{preview.impact.price_version_id ?? preview.impact.target_price_version_id}</span>
+        {immediate ? <>
+          <span>本期升級預估應付上限：<Money minor={preview.impact.estimated_amount_minor ?? preview.impact.net_minor} currency={preview.impact.currency} /></span>
+          <span>估算時刻：{new Date(preview.impact.estimated_at).toLocaleString()}</span>
+          <span>提交時重新計算；若應付金額增加，需重新預覽確認。</span>
+        </> : <Money minor={preview.impact.amount_minor} currency={preview.impact.currency} />}
+      </Space>,
       okText: immediate ? '確認升級' : '確認排程', cancelText: '返回檢查',
       onOk: () => {
         if (!canConfirmPreview(preview)) return
@@ -130,7 +139,7 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
       { key: 'quote', label: '保留的報價 ID', children: staleAttempt.payload.quote_id },
       { key: 'fingerprint', label: '保留的綁定 Fingerprint', children: staleAttempt.payload.fingerprint },
       { key: 'revision', label: '訂閱 revision', children: `${staleAttempt.payload.revision} → ${subscription.isFetching ? '重新讀取中…' : subscription.data.Revision}` },
-      ...(staleAttempt.preview ? [{ key: 'amount', label: immediate ? '本期升級差額上限' : '報價金額', children: <Space wrap><span>原先：<Money minor={staleAttempt.preview.impact.amount_minor ?? staleAttempt.preview.impact.net_minor} currency={staleAttempt.preview.impact.currency} /></span><span>現在：{preview ? <Money minor={preview.impact.amount_minor ?? preview.impact.net_minor} currency={preview.impact.currency} /> : '尚無新預覽'}</span></Space> }] : []),
+      ...(staleAttempt.preview ? [{ key: 'amount', label: immediate ? '本期升級預估應付上限' : '報價金額', children: <Space wrap><span>原先：<Money minor={staleAttempt.preview.impact.amount_minor ?? staleAttempt.preview.impact.net_minor} currency={staleAttempt.preview.impact.currency} /></span><span>現在：{preview ? <Money minor={preview.impact.amount_minor ?? preview.impact.net_minor} currency={preview.impact.currency} /> : '尚無新預覽'}</span></Space> }] : []),
       { key: 'next', label: '下一步', children: subscription.isFetching ? '正在重新讀取訂閱。' : subscription.data.Revision !== staleAttempt.payload.revision ? '訂閱 revision 已改變，請建立對應新 revision 的變更報價與綁定。' : preview ? '請比較新舊預覽，再次確認後才會執行。' : createPreview.isError ? '來源已變更或報價不可用，請檢查錯誤並重新建立預覽。' : '正在建立新的預覽。' },
     ]} />} />}
     {previewInvalidated && !preview && !pending && !commandID && <Alert type="warning" showIcon className="result-card" message="變更輸入已修改，請重新預覽" />}
@@ -142,7 +151,11 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
         { key: 'plan', label: '目標方案', children: preview.impact.plan_id ?? 'pro' },
         { key: 'price', label: '價格版本', children: preview.impact.price_version_id ?? preview.impact.target_price_version_id },
         { key: 'seats', label: '席次', children: preview.impact.seats },
-        { key: 'amount', label: immediate ? '本期升級差額上限' : '報價金額', children: <Money minor={preview.impact.amount_minor ?? preview.impact.net_minor} currency={preview.impact.currency} /> },
+        { key: 'amount', label: immediate ? '本期升級預估應付上限' : '報價金額', children: <Money minor={preview.impact.amount_minor ?? preview.impact.net_minor} currency={preview.impact.currency} /> },
+        ...(immediate ? [
+          { key: 'estimated', label: '估算時刻', children: new Date(preview.impact.estimated_at).toLocaleString() },
+          { key: 'recalculate', label: '付款義務', children: '提交時重新計算；若應付金額增加，需重新預覽確認。' },
+        ] : []),
         { key: 'effective', label: immediate ? '帳期結束' : '生效時間', children: new Date(preview.impact.effective_at ?? preview.impact.period_end).toLocaleString() },
         { key: 'expiry', label: '預覽有效至', children: new Date(preview.expires_at).toLocaleString() },
       ]} />
@@ -158,6 +171,10 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
         { key: 'schedule', label: '排程 ID', children: command.data.result_refs?.schedule_id ?? '尚未建立' },
         { key: 'change', label: '升級 ID', children: command.data.result_refs?.change_id ?? '未建立' },
         { key: 'invoice', label: '帳單 ID', children: command.data.result_refs?.invoice_id ?? '未建立' },
+        ...(immediate && command.data.status === 'succeeded' ? [
+          { key: 'estimated_amount', label: '預覽估算金額', children: command.data.result_refs?.estimated_amount_minor ? <Money minor={command.data.result_refs.estimated_amount_minor} currency={command.data.result_refs.currency} /> : '歷史命令未記錄' },
+          { key: 'pending_amount', label: '實際待付款義務', children: <Money minor={command.data.result_refs?.pending_amount_minor ?? command.data.result_refs?.net_minor} currency={command.data.result_refs?.currency} /> },
+        ] : []),
         { key: 'error', label: '錯誤', children: command.data.error_code || '無' },
       ]} />}
       <Button className="result-card" href={`/admin/commands/${encodeURIComponent(commandID)}`}>開啟命令頁面</Button>

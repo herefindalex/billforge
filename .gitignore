@@ -1,0 +1,10 @@
+.idea
+.env
+.env.*
+!.env.example
+web/admin/node_modules/
+web/admin/dist/
+cmd/lab/adminassets/dist/
+web/admin/test-results/
+web/admin/playwright-report/
+web/admin/tsconfig.tsbuildinfo

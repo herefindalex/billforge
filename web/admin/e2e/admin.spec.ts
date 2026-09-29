@@ -4,6 +4,7 @@ import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page, type Request, type Route } from '@playwright/test'
+import { submitClockControl } from './control-commands'
 import { startLocalAdmin, type LocalAdmin } from './server'
 
 test.describe.serial('local Web Admin with real SQLite and fake provider', () => {
@@ -1075,12 +1076,12 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
   await page.getByRole('dialog').getByRole('button', { name: '確認付款結果' }).click()
   await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: '執行另一個操作' }).click()
-  await page.getByRole('combobox', { name: /結果/ }).click()
-  await page.locator('.ant-select-dropdown:visible').getByText('成功', { exact: true }).click()
-  await page.getByRole('button', { name: '確認付款結果' }).click()
-  await page.getByRole('dialog').getByRole('button', { name: '確認付款結果' }).click()
-  await expect(page.getByRole('main').getByText('failed', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('DOMAIN_REJECTED')).toBeVisible()
+    await page.getByRole('combobox', { name: /結果/ }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText('成功', { exact: true }).click()
+    const rejectedDecisionPreview = page.waitForResponse((response) => response.url().endsWith('/admin/api/previews') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: '確認付款結果' }).click()
+    expect((await rejectedDecisionPreview).status()).toBe(409)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
   expect(count('SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id=? AND c.target_id=?', 'C47', operationID)).toBe(1)
   await page.goto(`${app.baseURL}/admin/payments/${operationID}/dispatch`)
     await page.getByRole('button', { name: '建立預覽' }).click()
@@ -1432,11 +1433,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     const sessionResponse = await page.request.get(`${app.baseURL}/admin/api/session`)
     const session = await sessionResponse.json() as { csrf_token: string }
     async function setClock(mode: 'fixed' | 'real', value?: string) {
-      const response = await page.request.post(`${app.baseURL}/admin/api/commands`, {
-        headers: { 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID(), Origin: app.baseURL },
-        data: { action_id: 'C46', target_id: '', payload: mode === 'fixed' ? { mode, value_utc: value } : { mode } },
-      })
-      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
+      await submitClockControl(page, app.baseURL, session.csrf_token, mode, value)
     }
     try {
       await setClock('fixed', midpoint)
@@ -1513,11 +1510,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     const expiredAt = new Date(Number(expiry / 1_000_000n) + 1000).toISOString()
     const session = await (await page.request.get(`${app.baseURL}/admin/api/session`)).json() as { csrf_token: string }
     async function setClock(mode: 'fixed' | 'real', value?: string) {
-      const response = await page.request.post(`${app.baseURL}/admin/api/commands`, {
-        headers: { 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID(), Origin: app.baseURL },
-        data: { action_id: 'C46', target_id: '', payload: mode === 'fixed' ? { mode, value_utc: value } : { mode } },
-      })
-      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
+      await submitClockControl(page, app.baseURL, session.csrf_token, mode, value)
     }
 
     try {
@@ -1994,12 +1987,12 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
   await page.getByRole('button', { name: '執行另一個操作' }).click()
   await page.getByRole('combobox', { name: /操作種類/ }).click()
   await page.locator('.ant-select-dropdown:visible').getByText('付款', { exact: true }).click()
-  await page.getByRole('combobox', { name: /故障模式/ }).click()
-  await page.locator('.ant-select-dropdown:visible').getByText('提供者完成後中斷', { exact: true }).click()
-  await page.getByRole('button', { name: '確認故障票據' }).click()
-  await page.getByRole('dialog').getByRole('button', { name: '確認故障票據' }).click()
-  await expect(page.getByRole('main').getByText('failed', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('DOMAIN_REJECTED')).toBeVisible()
+    await page.getByRole('combobox', { name: /故障模式/ }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText('提供者完成後中斷', { exact: true }).click()
+    const rejectedFaultPreview = page.waitForResponse((response) => response.url().endsWith('/admin/api/previews') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: '確認故障票據' }).click()
+    expect((await rejectedFaultPreview).status()).toBe(409)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
   expect(count('SELECT COUNT(*) FROM admin_fault_tickets WHERE operation_id=?', operationID)).toBe(1)
 
   await page.goto(`${app.baseURL}/admin/payments/${operationID}/dispatch`)
@@ -2168,11 +2161,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     const canonicalLaterTime = laterTime.replace('.000Z', 'Z')
     const session = await (await page.request.get(`${app.baseURL}/admin/api/session`)).json() as { csrf_token: string }
     const setClock = async (mode: 'fixed' | 'real', value?: string) => {
-      const response = await page.request.post(`${app.baseURL}/admin/api/commands`, {
-        headers: { Origin: app.baseURL, 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID() },
-        data: { action_id: 'C46', target_id: '', payload: mode === 'fixed' ? { mode, value_utc: value } : { mode } },
-      })
-      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
+      await submitClockControl(page, app.baseURL, session.csrf_token, mode, value)
     }
 
     try {
@@ -2393,11 +2382,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     const sessionResponse = await page.request.get(`${app.baseURL}/admin/api/session`)
     const session = await sessionResponse.json() as { csrf_token: string }
     async function setClock(mode: 'fixed' | 'real', value?: string) {
-      const response = await page.request.post(`${app.baseURL}/admin/api/commands`, {
-        headers: { 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID(), Origin: app.baseURL },
-        data: { action_id: 'C46', target_id: '', payload: mode === 'fixed' ? { mode, value_utc: value } : { mode } },
-      })
-      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
+      await submitClockControl(page, app.baseURL, session.csrf_token, mode, value)
     }
     try {
       const afterDue = new Date(Number(dueAt / 1_000_000n + 1000n)).toISOString()
@@ -2650,10 +2635,10 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await page.getByRole('button', { name: '執行另一個操作' }).click()
     await page.getByRole('combobox', { name: /結果/ }).click()
     await page.locator('.ant-select-dropdown:visible').getByText('確定失敗', { exact: true }).click()
+    const rejectedRefundDecisionPreview = page.waitForResponse((response) => response.url().endsWith('/admin/api/previews') && response.request().method() === 'POST')
     await page.getByRole('button', { name: '確認退款結果' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: '確認退款結果' }).click()
-    await expect(page.getByRole('main').getByText('failed', { exact: true }).first()).toBeVisible()
-    await expect(page.getByText('DOMAIN_REJECTED')).toBeVisible()
+    expect((await rejectedRefundDecisionPreview).status()).toBe(409)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
     expect(count('SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id=? AND c.target_id=?', 'C48', refundID)).toBe(1)
     expect(Number(scalar('SELECT COUNT(*) FROM refunds WHERE provider_key=?', providerKey, app.providerPath))).toBe(0)
 
@@ -3458,12 +3443,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     const sessionResponse = await page.request.get(`${app.baseURL}/admin/api/session`)
     const session = await sessionResponse.json() as { csrf_token: string }
     async function createClockCommand() {
-      const response = await page.request.post(`${app.baseURL}/admin/api/commands`, {
-        headers: { 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID(), Origin: app.baseURL },
-        data: { action_id: 'C46', target_id: '', payload: { mode: 'real' } },
-      })
-      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
-      return await response.json() as { id: string }
+      return submitClockControl(page, app.baseURL, session.csrf_token, 'real')
     }
     for (let i = 0; i < 21; i++) await createClockCommand()
     const firstResponse = await page.request.get(`${app.baseURL}/admin/api/commands?limit=5`)
@@ -5438,11 +5418,7 @@ db.commit()
       const renewalAt = new Date(Number((periodEnd + 1_000_000_000n) / 1_000_000n)).toISOString()
       const sessionResponse = await page.request.get(`${isolated.baseURL}/admin/api/session`)
       const session = await sessionResponse.json() as { csrf_token: string }
-      const clockResponse = await page.request.post(`${isolated.baseURL}/admin/api/commands`, {
-        headers: { 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID(), Origin: isolated.baseURL },
-        data: { action_id: 'C46', target_id: '', payload: { mode: 'fixed', value_utc: renewalAt } },
-      })
-      expect(clockResponse.ok(), `${clockResponse.status()} ${await clockResponse.text()}`).toBe(true)
+      await submitClockControl(page, isolated.baseURL, session.csrf_token, 'fixed', renewalAt)
       await page.goto(`${isolated.baseURL}/admin/jobs/renewals`)
       await page.getByRole('button', { name: '建立預覽' }).click()
       await expect(page.getByText('操作預覽', { exact: true })).toBeVisible()
@@ -5671,7 +5647,7 @@ db.commit()
 print(json.dumps(list(selected.values())))
 `
     const rows = JSON.parse(execFileSync('python3', ['-c', script, app.commercePath], { encoding: 'utf8' })) as Array<[string, string, string, string, string, string]>
-    const expected = 'C02 C03 C04 C05 C06 C07 C08 C09 C11 C12 C13 C14 C15 C16 C18 C19 C20 C21 C22 C24 C25 C27 C28 C29 C30 C31 C32 C34 C35 C36 C39 C40 C41 C42 C43 C44 C45'.split(' ')
+    const expected = 'C02 C03 C04 C05 C06 C07 C08 C09 C11 C12 C13 C14 C15 C16 C18 C19 C20 C21 C22 C24 C25 C27 C28 C29 C30 C31 C32 C34 C35 C36 C39 C40 C41 C42 C43 C44 C45 C46 C47 C48 C49'.split(' ')
     expect(rows.map(([action]) => action).sort()).toEqual(expected.sort())
     const commandsBefore = count('SELECT COUNT(*) FROM admin_commands')
     const receiptsBefore = count('SELECT COUNT(*) FROM admin_command_receipts')

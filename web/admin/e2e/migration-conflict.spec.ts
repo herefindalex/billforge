@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
+import { submitClockControl } from './control-commands'
 import { startLocalAdmin } from './server'
 
 test('migration detail explains a revision conflict without undoing an applied item', async ({ page }) => {
@@ -28,13 +29,9 @@ test('migration detail explains a revision conflict without undoing an applied i
     await page.getByRole('button', { name: '登 入' }).click()
     await expect(page.getByRole('heading', { name: '營運概覽' })).toBeVisible()
     const session = await (await page.request.get(`${base}/admin/api/session`)).json() as { csrf_token: string }
-    const setClock = async (at: string) => {
-      const response = await page.request.post(`${base}/admin/api/commands`, {
-        headers: { Origin: base, 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID() },
-        data: { action_id: 'C46', target_id: '', payload: { mode: 'fixed', value_utc: at } },
-      })
-      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
-    }
+  const setClock = async (at: string) => {
+    await submitClockControl(page, base, session.csrf_token, 'fixed', at)
+  }
     await setClock(new Date(Math.floor(Date.now() / 1000) * 1000).toISOString())
 
     const subscriptions: string[] = []
@@ -181,11 +178,7 @@ test('migration detail shows source price seat and schedule conflicts without re
     await expect(page.getByRole('heading', { name: '營運概覽' })).toBeVisible()
     const session = await (await page.request.get(`${base}/admin/api/session`)).json() as { csrf_token: string }
     async function setClock(valueUTC: string) {
-      const response = await page.request.post(`${base}/admin/api/commands`, {
-        headers: { Origin: base, 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': randomUUID() },
-        data: { action_id: 'C46', target_id: '', payload: { mode: 'fixed', value_utc: valueUTC } },
-      })
-      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
+      await submitClockControl(page, base, session.csrf_token, 'fixed', valueUTC)
     }
     async function fill(fields: Array<[string, string]>) {
       for (const [label, value] of fields) await page.getByLabel(label, { exact: true }).fill(value)

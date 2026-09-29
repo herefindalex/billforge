@@ -57,8 +57,8 @@ func (p *FakeProvider) adminSetDecision(ctx context.Context, commandID, kind, ke
 }
 
 func (l *Lab) adminExecuteProviderControl(ctx context.Context, commandID string) (AdminCommand, error) {
-	var actionID, actorID, targetID, status, raw string
-	if err := l.db.QueryRowContext(ctx, `SELECT action_id,actor_id,target_id,status,payload_json FROM admin_commands WHERE id=?`, commandID).Scan(&actionID, &actorID, &targetID, &status, &raw); err != nil {
+	var actionID, actorID, targetID, status, raw, previewID string
+	if err := l.db.QueryRowContext(ctx, `SELECT action_id,actor_id,target_id,status,payload_json,COALESCE(preview_id,'') FROM admin_commands WHERE id=?`, commandID).Scan(&actionID, &actorID, &targetID, &status, &raw, &previewID); err != nil {
 		return AdminCommand{}, err
 	}
 	if status == "succeeded" || status == "failed" {
@@ -90,6 +90,25 @@ func (l *Lab) adminExecuteProviderControl(ctx context.Context, commandID string)
 	receiptErr := l.provider.db.QueryRowContext(ctx, `SELECT target_key FROM provider_control_receipts WHERE command_id=?`, commandID).Scan(&priorReceipt)
 	if receiptErr != nil && !errors.Is(receiptErr, sql.ErrNoRows) {
 		return AdminCommand{}, receiptErr
+	}
+	if previewID != "" && errors.Is(receiptErr, sql.ErrNoRows) {
+		tx, err := l.db.BeginTx(ctx, nil)
+		if err != nil {
+			return AdminCommand{}, err
+		}
+		previewErr := l.adminControlPreviewCurrentTx(ctx, tx, commandID, previewID, actionID, targetID, []byte(raw))
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			return AdminCommand{}, err
+		}
+		if errors.Is(previewErr, ErrAdminPreviewStale) {
+			if err := l.adminFailCommand(ctx, commandID, actorID, actionID, targetID, "PREVIEW_STALE"); err != nil {
+				return AdminCommand{}, err
+			}
+			return l.AdminCommand(ctx, commandID)
+		}
+		if previewErr != nil {
+			return AdminCommand{}, previewErr
+		}
 	}
 	if operationStatus != "created" && errors.Is(receiptErr, sql.ErrNoRows) {
 		if err := l.adminFailCommand(ctx, commandID, actorID, actionID, targetID, "DOMAIN_REJECTED"); err != nil {

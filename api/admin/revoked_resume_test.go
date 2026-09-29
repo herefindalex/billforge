@@ -32,7 +32,12 @@ func TestReadOnlySessionCanVerifyHeldReceiptWithoutStartingOperation(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	held, _, err := l.AdminSubmitCommand(ctx, "local-admin", "held-http-control-001", "C47", accepted.OperationID, json.RawMessage(`{"status":"definitively_failed"}`), "")
+	controlPayload := json.RawMessage(`{"status":"definitively_failed"}`)
+	controlPreview, err := l.AdminCreatePreview(ctx, "local-admin", "C47", accepted.OperationID, controlPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, _, err := l.AdminSubmitCommand(ctx, "local-admin", "held-http-control-001", "C47", accepted.OperationID, controlPayload, controlPreview.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

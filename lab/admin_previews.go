@@ -121,6 +121,9 @@ func (l *Lab) AdminCreatePreview(ctx context.Context, actorID, actionID, targetI
 	if actionID == "C44" || actionID == "C45" {
 		return l.adminCreateMaintenancePreview(ctx, actorID, actionID, targetID, canonical)
 	}
+	if actionID == "C46" || actionID == "C47" || actionID == "C48" || actionID == "C49" {
+		return l.adminCreateControlPreview(ctx, actorID, actionID, targetID, canonical)
+	}
 	if actionID == "C06" {
 		return l.adminCreateResumePreview(ctx, actorID, targetID, canonical)
 	}

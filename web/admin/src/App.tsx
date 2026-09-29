@@ -380,7 +380,7 @@ const refreshEntitlementsAction: ActionConfig = {
 }
 
 const clockAction: ActionConfig = {
- actionID: 'C46', title: '設定實驗時鐘', confirmLabel: '確認設定時鐘', preview: false,
+  actionID: 'C46', title: '設定實驗時鐘', confirmLabel: '確認設定時鐘', preview: true,
  fields: [
   { name: 'mode', label: '模式', required: true, options: [{ value: 'real', label: '實際時間' }, { value: 'fixed', label: '固定時間' }] },
   { name: 'value_utc', label: '固定 UTC 時間（固定模式必填）', placeholder: '2026-09-26T12:00:00Z' },
@@ -388,15 +388,15 @@ const clockAction: ActionConfig = {
  description: '業務時間持久化於本機資料庫；登入期限及命令租約仍使用實際時間。',
 }
 const paymentDecisionAction: ActionConfig = {
- actionID: 'C47', title: '設定假付款結果', confirmLabel: '確認付款結果', preview: false,
+  actionID: 'C47', title: '設定假付款結果', confirmLabel: '確認付款結果', preview: true,
  fields: [{ name: 'status', label: '結果', required: true, options: [{ value: 'succeeded', label: '成功' }, { value: 'definitively_failed', label: '確定失敗' }] }],
 }
 const refundDecisionAction: ActionConfig = {
- actionID: 'C48', title: '設定假退款結果', confirmLabel: '確認退款結果', preview: false,
+  actionID: 'C48', title: '設定假退款結果', confirmLabel: '確認退款結果', preview: true,
  fields: paymentDecisionAction.fields,
 }
 const faultAction: ActionConfig = {
- actionID: 'C49', title: '建立一次性故障票據', confirmLabel: '確認故障票據', preview: false,
+  actionID: 'C49', title: '建立一次性故障票據', confirmLabel: '確認故障票據', preview: true,
  fields: [
   { name: 'operation_kind', label: '操作種類', required: true, options: [{ value: 'payment', label: '付款' }, { value: 'refund', label: '退款' }] },
   { name: 'mode', label: '故障模式', required: true, options: [{ value: 'lost_response', label: '回應遺失' }, { value: 'crash_after_provider', label: '提供者完成後中斷' }] },

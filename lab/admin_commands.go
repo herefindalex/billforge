@@ -414,11 +414,11 @@ func (l *Lab) AdminSubmitCommand(ctx context.Context, actorID, key, actionID, ta
 			return AdminCommand{}, false, ErrAdminInvalidCommand
 		}
 	case "C46":
-		if targetID != "" || previewID != "" {
+		if targetID != "" {
 			return AdminCommand{}, false, ErrAdminInvalidCommand
 		}
 	case "C47", "C48", "C49":
-		if targetID == "" || previewID != "" {
+		if targetID == "" {
 			return AdminCommand{}, false, ErrAdminInvalidCommand
 		}
 	case "C28", "C29":
@@ -451,6 +451,11 @@ func (l *Lab) AdminSubmitCommand(ctx context.Context, actorID, key, actionID, ta
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return AdminCommand{}, false, err
+	}
+	// Legacy control commands can still be recovered with their original key,
+	// but newly accepted control commands must carry a reviewed preview.
+	if previewID == "" && (actionID == "C46" || actionID == "C47" || actionID == "C48" || actionID == "C49") {
+		return AdminCommand{}, false, ErrAdminInvalidCommand
 	}
 	businessAt, clockRevision, err := l.adminBusinessSnapshotTx(ctx, tx)
 	if err != nil {
@@ -674,9 +679,15 @@ func (l *Lab) AdminExecuteCommand(ctx context.Context, id string) (AdminCommand,
 	case "C41", "C42", "C43":
 		refs, domainErr = l.executeAdminCutoverTx(ctx, tx, id, actorID, actionID, targetID, previewID, []byte(payloadJSON))
 	case "C46":
-		refs, domainErr = l.executeAdminClockTx(ctx, tx, payloadJSON)
+		domainErr = l.adminControlPreviewCurrentTx(ctx, tx, id, previewID, actionID, targetID, []byte(payloadJSON))
+		if domainErr == nil {
+			refs, domainErr = l.executeAdminClockTx(ctx, tx, payloadJSON)
+		}
 	case "C49":
-		refs, domainErr = l.executeAdminFaultTx(ctx, tx, id, targetID, payloadJSON)
+		domainErr = l.adminControlPreviewCurrentTx(ctx, tx, id, previewID, actionID, targetID, []byte(payloadJSON))
+		if domainErr == nil {
+			refs, domainErr = l.executeAdminFaultTx(ctx, tx, id, targetID, payloadJSON)
+		}
 	case "C23":
 		domainErr = pausePriceMigrationTx(ctx, tx, targetID)
 		if domainErr == nil {
@@ -713,7 +724,7 @@ func (l *Lab) AdminExecuteCommand(ctx context.Context, id string) (AdminCommand,
 			code := "DOMAIN_REJECTED"
 			if errors.Is(domainErr, ErrAccountMigrationStopped) {
 				code = "ACCOUNT_MIGRATION_STOPPED"
-			} else if actionID == "C02" || actionID == "C03" || actionID == "C04" || actionID == "C05" || actionID == "C06" || actionID == "C07" || actionID == "C08" || actionID == "C11" || actionID == "C12" || actionID == "C13" || actionID == "C14" || actionID == "C15" || actionID == "C18" || actionID == "C19" || actionID == "C20" || actionID == "C21" || actionID == "C22" || actionID == "C24" || actionID == "C25" || actionID == "C27" || actionID == "C28" || actionID == "C29" || actionID == "C30" || actionID == "C31" || actionID == "C32" || actionID == "C35" || actionID == "C36" || actionID == "C39" || actionID == "C40" || actionID == "C41" || actionID == "C42" || actionID == "C43" || actionID == "C44" || actionID == "C45" {
+			} else if actionID == "C02" || actionID == "C03" || actionID == "C04" || actionID == "C05" || actionID == "C06" || actionID == "C07" || actionID == "C08" || actionID == "C11" || actionID == "C12" || actionID == "C13" || actionID == "C14" || actionID == "C15" || actionID == "C18" || actionID == "C19" || actionID == "C20" || actionID == "C21" || actionID == "C22" || actionID == "C24" || actionID == "C25" || actionID == "C27" || actionID == "C28" || actionID == "C29" || actionID == "C30" || actionID == "C31" || actionID == "C32" || actionID == "C35" || actionID == "C36" || actionID == "C39" || actionID == "C40" || actionID == "C41" || actionID == "C42" || actionID == "C43" || actionID == "C44" || actionID == "C45" || actionID == "C46" || actionID == "C49" {
 				code = "PREVIEW_STALE"
 			}
 			if err := l.adminFailCommand(ctx, id, actorID, actionID, targetID, code); err != nil {

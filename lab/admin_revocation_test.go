@@ -52,7 +52,12 @@ func TestAdminCapabilityRevocationPreservesExternalObligations(t *testing.T) {
 	if _, err := l.db.ExecContext(ctx, `UPDATE admin_commands SET status='waiting_verification' WHERE id=?`, inconsistent.ID); err != nil {
 		t.Fatal(err)
 	}
-	control, _, err := l.AdminSubmitCommand(ctx, "local-admin", "revoke-control-001", "C47", unstartedOperation, json.RawMessage(`{"status":"definitively_failed"}`), "")
+	controlPayload := json.RawMessage(`{"status":"definitively_failed"}`)
+	controlPreview, err := l.AdminCreatePreview(ctx, "local-admin", "C47", unstartedOperation, controlPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control, _, err := l.AdminSubmitCommand(ctx, "local-admin", "revoke-control-001", "C47", unstartedOperation, controlPayload, controlPreview.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

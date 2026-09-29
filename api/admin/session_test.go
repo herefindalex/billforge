@@ -29,7 +29,12 @@ func TestBusinessClockChangeDoesNotChangeSessionDeadline(t *testing.T) {
 	s := &Server{lab: l, username: "admin", sessions: map[[32]byte]session{
 		hashToken(token): {csrf: "csrf", expires: now.Add(8 * time.Hour), idleUntil: now.Add(30 * time.Minute)},
 	}, now: func() time.Time { return now }}
-	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "session-clock-change", "C46", "", json.RawMessage(`{"mode":"fixed","value_utc":"2040-01-01T00:00:00Z"}`), "")
+	clockPayload := json.RawMessage(`{"mode":"fixed","value_utc":"2040-01-01T00:00:00Z"}`)
+	clockPreview, err := l.AdminCreatePreview(ctx, "local-admin", "C46", "", clockPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "session-clock-change", "C46", "", clockPayload, clockPreview.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

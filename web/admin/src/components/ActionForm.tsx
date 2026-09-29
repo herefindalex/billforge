@@ -65,6 +65,7 @@ export default function ActionForm({ config, session }: { config: ActionConfig; 
 }
 
 function ActionFormInstance({ config, session, id }: { config: ActionConfig; session: Session; id: string }) {
+  const controlPreviewAction = ['C46', 'C47', 'C48', 'C49'].includes(config.actionID)
  const location = useLocation()
  const navigate = useNavigate()
  const initialValues = (location.state ?? {}) as Record<string, string>
@@ -89,6 +90,7 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
       setPreview(result)
       setPayload(input)
       setPreviewInvalidated(false)
+      if (controlPreviewAction) confirm(input, result)
     },
   })
   const externalAction = config.actionID === 'C09' || config.actionID === 'C16'
@@ -132,7 +134,7 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
     mutationFn: () => api.resumeCommand(session.csrf_token, commandID!),
     onSuccess: () => { void command.refetch() },
   })
-  const confirm = (input: Record<string, unknown>, currentPreview: Preview | null) => {
+  function confirm(input: Record<string, unknown>, currentPreview: Preview | null) {
     if (currentPreview && !canConfirmPreview(currentPreview)) return
     const intent: Pending = { key: crypto.randomUUID(), previewID: currentPreview?.preview_id, payload: input }
     modal.confirm({
@@ -209,7 +211,7 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
         ]}>
           {field.options ? <Select options={field.options} /> : field.csv ? <Input.TextArea rows={4} placeholder={field.placeholder} /> : <Input autoComplete="off" placeholder={field.placeholder} inputMode={field.name.endsWith('_minor') ? 'numeric' : undefined} />}
         </Form.Item>)}
-        <Button type="primary" htmlType="submit" loading={createPreview.isPending} disabled={pending !== null || commandID !== null}>{config.preview ? '建立預覽' : config.confirmLabel}</Button>
+        <Button type="primary" htmlType="submit" loading={createPreview.isPending} disabled={pending !== null || commandID !== null}>{config.preview && !controlPreviewAction ? '建立預覽' : config.confirmLabel}</Button>
       </Form>
     </Card>
     {previewInvalidated && !preview && !pending && !commandID && <Alert type="warning" showIcon className="result-card" message="輸入已變更，請重新建立預覽" />}

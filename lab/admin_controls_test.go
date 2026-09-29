@@ -112,7 +112,11 @@ func TestAdminFaultTicketOrderDoesNotDependOnTimestampTextPrecision(t *testing.T
 func submitControl(t *testing.T, l *Lab, key, actionID, targetID string, payload json.RawMessage) AdminCommand {
 	t.Helper()
 	ctx := context.Background()
-	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", key, actionID, targetID, payload, "")
+	preview, err := l.AdminCreatePreview(ctx, "local-admin", actionID, targetID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", key, actionID, targetID, payload, preview.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,17 +426,21 @@ func TestAdminDuplicateFaultTicketFailsWithoutStrandingCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstPayload := json.RawMessage(`{"operation_kind":"payment","mode":"lost_response"}`)
-	first := submitControl(t, l, "duplicate-fault-first", "C49", accepted.OperationID, firstPayload)
 	secondPayload := json.RawMessage(`{"operation_kind":"payment","mode":"crash_after_provider"}`)
-	second, _, err := l.AdminSubmitCommand(ctx, "local-admin", "duplicate-fault-second", "C49", accepted.OperationID, secondPayload, "")
+	secondPreview, err := l.AdminCreatePreview(ctx, "local-admin", "C49", accepted.OperationID, secondPayload)
 	if err != nil {
 		t.Fatal(err)
 	}
+	second, _, err := l.AdminSubmitCommand(ctx, "local-admin", "duplicate-fault-second", "C49", accepted.OperationID, secondPayload, secondPreview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := submitControl(t, l, "duplicate-fault-first", "C49", accepted.OperationID, firstPayload)
 	second, err = l.AdminExecuteCommand(ctx, second.ID)
-	if err != nil || second.Status != "failed" || second.ErrorCode != "DOMAIN_REJECTED" {
+	if err != nil || second.Status != "failed" || second.ErrorCode != "PREVIEW_STALE" {
 		t.Fatalf("duplicate ticket command %+v %v", second, err)
 	}
-	replayed, found, err := l.AdminSubmitCommand(ctx, "local-admin", "duplicate-fault-second", "C49", accepted.OperationID, secondPayload, "")
+	replayed, found, err := l.AdminSubmitCommand(ctx, "local-admin", "duplicate-fault-second", "C49", accepted.OperationID, secondPayload, secondPreview.ID)
 	if err != nil || !found || replayed.ID != second.ID || replayed.Status != "failed" {
 		t.Fatalf("duplicate key replay %+v found=%v err=%v", replayed, found, err)
 	}
@@ -882,13 +890,18 @@ func TestAdminConflictingProviderDecisionsPreserveFirstOutcome(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			first := submitControl(t, l, "decision-success-"+tc.name, tc.actionID, operationID, json.RawMessage(`{"status":"succeeded"}`))
-			second, _, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-failure-"+tc.name, tc.actionID, operationID, json.RawMessage(`{"status":"definitively_failed"}`), "")
+			secondPayload := json.RawMessage(`{"status":"definitively_failed"}`)
+			secondPreview, err := l.AdminCreatePreview(ctx, "local-admin", tc.actionID, operationID, secondPayload)
 			if err != nil {
 				t.Fatal(err)
 			}
+			second, _, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-failure-"+tc.name, tc.actionID, operationID, secondPayload, secondPreview.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := submitControl(t, l, "decision-success-"+tc.name, tc.actionID, operationID, json.RawMessage(`{"status":"succeeded"}`))
 			second, err = l.AdminExecuteCommand(ctx, second.ID)
-			if err != nil || second.Status != "failed" || second.ErrorCode != "DOMAIN_REJECTED" {
+			if err != nil || second.Status != "failed" || second.ErrorCode != "PREVIEW_STALE" {
 				t.Fatalf("conflicting decision %+v %v", second, err)
 			}
 			var key string
@@ -913,13 +926,8 @@ func TestAdminConflictingProviderDecisionsPreserveFirstOutcome(t *testing.T) {
 			if err := l.provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+tc.factTable+` WHERE provider_key=? AND status='succeeded'`, key).Scan(&receipts); err != nil || receipts != 1 {
 				t.Fatalf("provider facts %d %v", receipts, err)
 			}
-			late, _, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-after-terminal-"+tc.name, tc.actionID, operationID, json.RawMessage(`{"status":"succeeded"}`), "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			late, err = l.AdminExecuteCommand(ctx, late.ID)
-			if err != nil || late.Status != "failed" || late.ErrorCode != "DOMAIN_REJECTED" {
-				t.Fatalf("decision after terminal operation %+v %v", late, err)
+			if _, err := l.AdminCreatePreview(ctx, "local-admin", tc.actionID, operationID, json.RawMessage(`{"status":"succeeded"}`)); !errors.Is(err, ErrConflict) {
+				t.Fatalf("decision after terminal operation preview: %v", err)
 			}
 			if err := l.provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_control_receipts WHERE target_key=?`, key).Scan(&receipts); err != nil || receipts != 1 {
 				t.Fatalf("provider control receipts after terminal operation %d %v", receipts, err)
@@ -962,7 +970,12 @@ func TestAdminRefundDecisionRecoversAfterProviderCommitAndDispatch(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-refund-001", "C48", refundID, json.RawMessage(`{"status":"definitively_failed"}`), "")
+	decisionPayload := json.RawMessage(`{"status":"definitively_failed"}`)
+	decisionPreview, err := l.AdminCreatePreview(ctx, "local-admin", "C48", refundID, decisionPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-refund-001", "C48", refundID, decisionPayload, decisionPreview.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1006,7 +1019,7 @@ func TestAdminRefundDecisionRecoversAfterProviderCommitAndDispatch(t *testing.T)
 	if err != nil || credit.GrantedMinor != 1000 || credit.ReservedMinor != 0 || credit.RefundedMinor != 0 || credit.AvailableMinor != 1000 {
 		t.Fatalf("credit after failed refund %+v %v", credit, err)
 	}
-	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-refund-001", "C48", refundID, json.RawMessage(`{"status":"definitively_failed"}`), "")
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "decision-refund-001", "C48", refundID, decisionPayload, decisionPreview.ID)
 	if err != nil || !replay || replayed.ID != command.ID || replayed.Status != "succeeded" {
 		t.Fatalf("replayed refund decision %+v replay=%t err=%v", replayed, replay, err)
 	}
@@ -1071,7 +1084,12 @@ func TestAdminPaymentDecisionRecoversAfterProviderCommitAndCapture(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "payment-control-decision", "C47", accepted.OperationID, json.RawMessage(`{"status":"succeeded"}`), "")
+	decisionPayload := json.RawMessage(`{"status":"succeeded"}`)
+	decisionPreview, err := l.AdminCreatePreview(ctx, "local-admin", "C47", accepted.OperationID, decisionPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "payment-control-decision", "C47", accepted.OperationID, decisionPayload, decisionPreview.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

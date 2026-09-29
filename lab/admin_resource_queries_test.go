@@ -164,7 +164,7 @@ func TestAdminResourcePageKeepsMissingSourcesDistinctFromZero(t *testing.T) {
 	}
 }
 
-func TestAdminSubscriptionAndInvoicePagesDoNotRepeatAfterInsert(t *testing.T) {
+func TestAdminSubscriptionInvoiceAndPaymentPagesDoNotRepeatAfterInsert(t *testing.T) {
 	ctx := context.Background()
 	l, _, _ := openTestLab(t)
 	if err := l.InitAdmin(ctx); err != nil {
@@ -187,7 +187,7 @@ func TestAdminSubscriptionAndInvoicePagesDoNotRepeatAfterInsert(t *testing.T) {
 		cursor int64
 	}
 	starts := map[string]pageStart{}
-	for _, resource := range []string{"subscriptions", "invoices"} {
+	for _, resource := range []string{"subscriptions", "invoices", "payments"} {
 		first, total, cursor, err := l.AdminResourcePage(ctx, resource, 0, 1)
 		if err != nil || total != 2 || len(first) != 1 || cursor == 0 {
 			t.Fatalf("%s first page: len=%d total=%d cursor=%d err=%v", resource, len(first), total, cursor, err)
@@ -195,7 +195,7 @@ func TestAdminSubscriptionAndInvoicePagesDoNotRepeatAfterInsert(t *testing.T) {
 		starts[resource] = pageStart{id: first[0]["ID"], cursor: cursor}
 	}
 	create("cursor-source-c")
-	for _, resource := range []string{"subscriptions", "invoices"} {
+	for _, resource := range []string{"subscriptions", "invoices", "payments"} {
 		start := starts[resource]
 		second, total, next, err := l.AdminResourcePage(ctx, resource, start.cursor, 2)
 		if err != nil || total != 3 || len(second) != 2 || next != 0 {

@@ -3878,11 +3878,12 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
   test('lost C18 publish response recovers one price and receipt with the original key', async ({ page }) => {
     await signIn(page)
     const priceID = `pro_lost_response_${randomUUID().replaceAll('-', '')}`
+    const version = String(count("SELECT COALESCE(MAX(version), 0) + 1 FROM price_versions WHERE plan_id='pro'"))
     const effective = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
     const paymentsBefore = count('SELECT COUNT(*) FROM payment_operations')
     await page.goto(`${app.baseURL}/admin/prices/pro/new`)
     for (const [label, value] of [
-      ['價格版本 ID', priceID], ['版本號', '2'],
+      ['價格版本 ID', priceID], ['版本號', version],
       ['固定金額（最小單位）', '6000'], ['每席金額（最小單位）', '1000'],
       ['包含任務量', '100'], ['超額費率分子', '1'],
       ['超額費率分母', '1'], ['生效起點（UTC）', effective],

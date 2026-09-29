@@ -2,10 +2,10 @@ import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Select, Space, Typography } from 'antd'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError, type Command, type Preview, type Session } from '../api/client'
+import { api, canShowStaleRead, HttpError, type Command, type Preview, type Session } from '../api/client'
 import { isExactAdminUTC, isNonNegativeInt64String, minimumUpfrontFits } from '../api/validation'
 import { useStoredCommandID } from '../features/commands/useStoredCommandID'
-import CommandReadRecovery, { isCommandNotFound } from '../features/commands/CommandReadRecovery'
+import CommandReadRecovery from '../features/commands/CommandReadRecovery'
 import Money from './Money'
 import ExternalOperationOutcome from './ExternalOperationOutcome'
 import PreviewWarnings from './PreviewWarnings'
@@ -183,6 +183,8 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
   const sourceChanges = stalePreview && preview ? Array.from(new Set([
   ...Object.keys(stalePreview.source_versions), ...Object.keys(preview.source_versions),
   ])).filter((key) => stalePreview.source_versions[key] !== preview.source_versions[key]) : []
+  const visibleCommand = command.isError && !canShowStaleRead(command.error) ? undefined : command.data
+
   return <div className="form-page">
     <Typography.Title level={2}>{config.title}</Typography.Title>
     {config.description && <Typography.Paragraph type="secondary">{config.description}</Typography.Paragraph>}
@@ -241,24 +243,24 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
       <Typography.Paragraph className="result-card" type="secondary">有效至：{new Date(preview.expires_at).toLocaleString()}</Typography.Paragraph>
       <Button onClick={() => payload && confirm(payload, preview)} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>{config.confirmLabel}</Button>
     </Card>}
-    {submit.isError && command.data?.status !== 'succeeded' && command.data?.status !== 'failed' && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422 || submit.error.code === 'IDEMPOTENCY_CONFLICT') ? '命令未被接受，請檢查輸入' : '命令結果尚未確認'} description={submit.error.message} />}
+    {submit.isError && visibleCommand?.status !== 'succeeded' && visibleCommand?.status !== 'failed' && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422 || submit.error.code === 'IDEMPOTENCY_CONFLICT') ? '命令未被接受，請檢查輸入' : '命令結果尚未確認'} description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card" extra={<Button onClick={() => void command.refetch()} loading={command.isFetching}>更新</Button>}>
       {command.isPending && <Typography.Text>正在查詢命令狀態…</Typography.Text>}
-      {command.isError && (!command.data || isCommandNotFound(command.error)) && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); setPreview(null); setStalePreview(null); setPayload(null); setPreviewInvalidated(false); submit.reset(); resume.reset(); createPreview.reset(); form.resetFields() }} />}
-      {command.isError && command.data && <Alert type="warning" showIcon className="result-card" message="無法更新命令狀態；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(command.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void command.refetch()}>重試</Button></Space>} />}
-      {command.data && <ExternalOperationOutcome command={command.data} />}
-      {command.data && <Descriptions column={1} bordered size="small" items={[
-        { key: 'id', label: '命令 ID', children: <Typography.Text copyable>{command.data.id}</Typography.Text> },
-        { key: 'status', label: '狀態', children: command.data.status },
-        ...Object.entries(command.data.result_refs ?? {}).map(([key, value]) => ({ key, label: key, children: displayValue(key, value, command.data?.result_refs?.currency) })),
-        { key: 'error', label: '錯誤', children: command.data.error_code || '無' },
+      {command.isError && !visibleCommand && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); setPreview(null); setStalePreview(null); setPayload(null); setPreviewInvalidated(false); submit.reset(); resume.reset(); createPreview.reset(); form.resetFields() }} />}
+      {command.isError && visibleCommand && <Alert type="warning" showIcon className="result-card" message="無法更新命令狀態；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(command.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void command.refetch()}>重試</Button></Space>} />}
+      {visibleCommand && <ExternalOperationOutcome command={visibleCommand} />}
+      {visibleCommand && <Descriptions column={1} bordered size="small" items={[
+        { key: 'id', label: '命令 ID', children: <Typography.Text copyable>{visibleCommand.id}</Typography.Text> },
+        { key: 'status', label: '狀態', children: visibleCommand.status },
+        ...Object.entries(visibleCommand.result_refs ?? {}).map(([key, value]) => ({ key, label: key, children: displayValue(key, value, visibleCommand.result_refs?.currency) })),
+        { key: 'error', label: '錯誤', children: visibleCommand.error_code || '無' },
       ]} />}
-      {config.actionID === 'C34' && command.data?.result_refs?.repair_status === 'blocked' && <Alert type="warning" showIcon className="result-card" message="修復未執行，需檢查最新對帳證據" description={command.data.result_refs.verification || '請重新執行對帳並檢查來源狀態。'} action={<Button onClick={() => navigate(`/discrepancies/${encodeURIComponent(id)}`)}>查看差異</Button>} />}
+      {config.actionID === 'C34' && visibleCommand?.result_refs?.repair_status === 'blocked' && <Alert type="warning" showIcon className="result-card" message="修復未執行，需檢查最新對帳證據" description={visibleCommand.result_refs.verification || '請重新執行對帳並檢查來源狀態。'} action={<Button onClick={() => navigate(`/discrepancies/${encodeURIComponent(id)}`)}>查看差異</Button>} />}
       {commandID && ['C13', 'C30', 'C32', 'C44', 'C45'].includes(config.actionID) && <Button className="result-card" onClick={() => navigate(`/jobs/${encodeURIComponent(`job:${commandID}`)}`)}>查看逐項進度</Button>}
       {commandID && <Button className="result-card" onClick={() => navigate(`/commands/${encodeURIComponent(commandID)}`)}>開啟命令頁面</Button>}
-      {(command.data?.status === 'succeeded' || command.data?.status === 'failed') && <Button className="result-card" onClick={() => { setCommandID(null); setPreview(null); setStalePreview(null); setPayload(null); setPreviewInvalidated(false); submit.reset(); resume.reset(); createPreview.reset(); form.resetFields() }} disabled={command.isError}>執行另一個操作</Button>}
-      {command.data?.status === 'accepted' && command.data.error_code !== 'PERMISSION_REVOKED_REVIEW' && <Button className="result-card" onClick={() => resume.mutate()} loading={resume.isPending} disabled={command.isError}>繼續原命令</Button>}
-      {command.data?.status === 'waiting_verification' && <Button className="result-card" onClick={() => resume.mutate()} loading={resume.isPending} disabled={command.isError}>重新查證</Button>}
+      {(visibleCommand?.status === 'succeeded' || visibleCommand?.status === 'failed') && <Button className="result-card" onClick={() => { setCommandID(null); setPreview(null); setStalePreview(null); setPayload(null); setPreviewInvalidated(false); submit.reset(); resume.reset(); createPreview.reset(); form.resetFields() }} disabled={command.isError}>執行另一個操作</Button>}
+      {visibleCommand?.status === 'accepted' && visibleCommand.error_code !== 'PERMISSION_REVOKED_REVIEW' && <Button className="result-card" onClick={() => resume.mutate()} loading={resume.isPending} disabled={command.isError}>繼續原命令</Button>}
+      {visibleCommand?.status === 'waiting_verification' && <Button className="result-card" onClick={() => resume.mutate()} loading={resume.isPending} disabled={command.isError}>重新查證</Button>}
       {resume.isError && <Alert type="error" showIcon className="result-card" message="目前無法查證，請稍後重試" description={resume.error.message} />}
     </Card>}
   </div>

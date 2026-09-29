@@ -70,6 +70,8 @@ go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db
 
 帳單、訂閱、Credit、付款、退款、價格及合約詳情也遵循相同的讀取失敗規則：暫時性故障會標示快取資料並停用依賴該資料的操作；權限遭拒時會隱藏快取資料。
 
+共用操作表單與訂閱方案變更的命令結果也遵循此規則。暫時無法讀取時，介面會以警示標示上次成功讀取的結果，並停用依賴命令狀態的操作。權限遭拒時，快取的命令結果會隱藏；重新讀取成功後才會再次顯示。
+
 具備 `lab.control` 權限時，「實驗控制」可查看 fake provider 狀態，以及分頁的收款與退款紀錄。這些資料來自獨立的本機資料庫；API 金額仍以精確的最小貨幣單位字串回傳。
 
 若要限制管理員能力，可設定 `BILLFORGE_ADMIN_CAPABILITIES=read`，或提供其他以逗號分隔的能力。未設定時，本機管理員具有完整權限。能力變更需重啟；恢復中的命令會依新權限與既有外部義務重新判定，詳見 [Web Admin 實作紀錄](docs/implementation/web-admin.md)。

@@ -94,7 +94,7 @@ test('曾讀到的命令隨後回 404 時仍可清除，但舊狀態不能啟動
     missing = true
     await page.getByRole('button', { name: /更\s*新/ }).click()
     await expect(page.getByRole('button', { name: '清除本頁無效命令記錄' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '執行另一個操作' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '執行另一個操作' })).toHaveCount(0)
     await page.getByRole('button', { name: '清除本頁無效命令記錄' }).click()
     await expect(page.getByRole('button', { name: '建立預覽' })).toBeEnabled()
     expect(await page.evaluate((storageKey) => sessionStorage.getItem(storageKey), key)).toBeNull()

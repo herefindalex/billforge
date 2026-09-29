@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Skeleton, Space, Typography } from 'antd'
 import { useLocation, useParams } from 'react-router-dom'
-import { api, HttpError, type Command, type Preview, type Session } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type Command, type Preview, type Session } from '../../api/client'
 import { useStoredCommandID } from '../commands/useStoredCommandID'
 import CommandReadRecovery from '../commands/CommandReadRecovery'
 import Money from '../../components/Money'
@@ -119,6 +119,8 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
   }
   if (subscription.isPending) return <Skeleton active />
   if (subscription.isError) return <ReadFailureWithRecovery title="訂閱無法載入" message={subscription.error.message} onRetryRead={() => { void subscription.refetch() }} hasPendingCommand={pending !== null} onRecoverCommand={() => { if (pending) submit.mutate(pending) }} recovering={submit.isPending} commandID={commandID} recoveryError={submit.isError ? submit.error.message : null} />
+  const visibleCommand = command.isError && !canShowStaleRead(command.error) ? undefined : command.data
+
   return <div className="form-page">
     <Typography.Title level={2}>{immediate ? '立即升級 Pro' : '排程下期方案變更'}</Typography.Title>
     <Card>
@@ -172,21 +174,22 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
     {submit.isError && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效，請重新預覽' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '命令未被接受，請檢查輸入' : '命令結果尚未確認'} description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card">
       {command.isPending && <Typography.Text>正在查詢命令狀態…</Typography.Text>}
-      {command.isError && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); setPreview(null); setStaleAttempt(null); setPayload(null); setPreviewInvalidated(false); form.resetFields() }} />}
-      {command.data && <Descriptions column={1} bordered size="small" items={[
-        { key: 'id', label: '命令 ID', children: <Typography.Text copyable>{command.data.id}</Typography.Text> },
-        { key: 'status', label: '狀態', children: command.data.status },
-        { key: 'schedule', label: '排程 ID', children: command.data.result_refs?.schedule_id ?? '尚未建立' },
-        { key: 'change', label: '升級 ID', children: command.data.result_refs?.change_id ?? '未建立' },
-        { key: 'invoice', label: '帳單 ID', children: command.data.result_refs?.invoice_id ?? '未建立' },
-        ...(immediate && command.data.status === 'succeeded' ? [
-          { key: 'estimated_amount', label: '預覽估算金額', children: command.data.result_refs?.estimated_amount_minor ? <Money minor={command.data.result_refs.estimated_amount_minor} currency={command.data.result_refs.currency} /> : '歷史命令未記錄' },
-          { key: 'pending_amount', label: '實際待付款義務', children: <Money minor={command.data.result_refs?.pending_amount_minor ?? command.data.result_refs?.net_minor} currency={command.data.result_refs?.currency} /> },
+      {command.isError && !visibleCommand && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); setPreview(null); setStaleAttempt(null); setPayload(null); setPreviewInvalidated(false); form.resetFields() }} />}
+      {command.isError && visibleCommand && <Alert type="warning" showIcon className="result-card" message="無法更新命令狀態；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(command.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void command.refetch()}>重試</Button></Space>} />}
+      {visibleCommand && <Descriptions column={1} bordered size="small" items={[
+        { key: 'id', label: '命令 ID', children: <Typography.Text copyable>{visibleCommand.id}</Typography.Text> },
+        { key: 'status', label: '狀態', children: visibleCommand.status },
+        { key: 'schedule', label: '排程 ID', children: visibleCommand.result_refs?.schedule_id ?? '尚未建立' },
+        { key: 'change', label: '升級 ID', children: visibleCommand.result_refs?.change_id ?? '未建立' },
+        { key: 'invoice', label: '帳單 ID', children: visibleCommand.result_refs?.invoice_id ?? '未建立' },
+        ...(immediate && visibleCommand.status === 'succeeded' ? [
+          { key: 'estimated_amount', label: '預覽估算金額', children: visibleCommand.result_refs?.estimated_amount_minor ? <Money minor={visibleCommand.result_refs.estimated_amount_minor} currency={visibleCommand.result_refs.currency} /> : '歷史命令未記錄' },
+          { key: 'pending_amount', label: '實際待付款義務', children: <Money minor={visibleCommand.result_refs?.pending_amount_minor ?? visibleCommand.result_refs?.net_minor} currency={visibleCommand.result_refs?.currency} /> },
         ] : []),
-        { key: 'error', label: '錯誤', children: command.data.error_code || '無' },
+        { key: 'error', label: '錯誤', children: visibleCommand.error_code || '無' },
       ]} />}
       <Button className="result-card" href={`/admin/commands/${encodeURIComponent(commandID)}`}>開啟命令頁面</Button>
-      {(command.data?.status === 'succeeded' || command.data?.status === 'failed') && <Button className="result-card" disabled={command.isError} onClick={() => { setCommandID(null); setPreview(null); setStaleAttempt(null); setPayload(null); setPreviewInvalidated(false); form.resetFields() }}>開始另一個變更</Button>}
+      {(visibleCommand?.status === 'succeeded' || visibleCommand?.status === 'failed') && <Button className="result-card" disabled={command.isError} onClick={() => { setCommandID(null); setPreview(null); setStaleAttempt(null); setPayload(null); setPreviewInvalidated(false); form.resetFields() }}>開始另一個變更</Button>}
     </Card>}
   </div>
 }

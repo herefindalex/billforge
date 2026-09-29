@@ -70,6 +70,8 @@ go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db
 
 账单、订阅、Credit、付款、退款、价格和合同详情也遵循相同的读取失败规则：临时故障会标明缓存数据并停用依赖这些数据的操作；权限被拒时会隐藏缓存数据。
 
+共用操作表单和订阅方案变更的命令结果也遵循这一规则。暂时无法读取时，界面会用警示标明上次成功读取的结果，并停用依赖命令状态的操作。权限被拒时，缓存的命令结果会隐藏；重新读取成功后才会再次显示。
+
 具备 `lab.control` 权限时，“实验控制”可查看 fake provider 状态，以及分页的收款和退款记录。这些数据来自独立的本地数据库；API 金额仍以精确的最小货币单位字符串返回。
 
 如需限制管理员权限，可设置 `BILLFORGE_ADMIN_CAPABILITIES=read`，或提供其他以逗号分隔的权限。未设置时，本地管理员拥有完整权限。权限变更需要重启；恢复中的命令会根据新权限和现有外部义务重新判定，详见 [Web Admin 实现记录](docs/implementation/web-admin.md)。

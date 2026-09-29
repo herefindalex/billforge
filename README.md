@@ -70,6 +70,8 @@ The **Batch jobs** page lists recent jobs with item counts and links to their de
 
 Invoice, subscription, credit, payment, refund, price, and contract details follow the same read-failure rule: a temporary failure labels cached data and disables actions based on it; an access denial hides cached data.
 
+Command results in shared action forms and subscription plan changes follow the same rule. A temporary read failure shows the last successful result with a warning and disables state-changing controls. Access denial hides the cached command result; retrying the read can restore it.
+
 With `lab.control` permission, **Lab controls** shows fake-provider status and paginated capture and refund records. These are observations of a separate local database, and monetary amounts remain exact minor-unit strings in the API.
 
 To limit administrator permissions, optionally set `BILLFORGE_ADMIN_CAPABILITIES=read` or provide other comma-separated capabilities. Without this setting, the local administrator has full permissions. Restart to apply capability changes. Commands being recovered are re-evaluated against the new permissions and any existing external obligations; see the [Web Admin implementation record](docs/implementation/web-admin.md).

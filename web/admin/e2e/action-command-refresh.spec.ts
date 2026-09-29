@@ -15,10 +15,11 @@ test('共用操作頁在命令狀態讀取失敗時停用舊狀態操作', async
       sessionStorage.setItem(`billforge:admin:command:${actorID}:C16:refund-action-ui`, 'cmd-action-ui')
     }, session.actor_id)
     let failRead = false
+    let failureStatus = 503
     let status: 'accepted' | 'waiting_verification' | 'succeeded' = 'accepted'
     await page.route('**/admin/api/commands/cmd-action-ui', async (route) => {
       if (failRead) {
-        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'QUERY_FAILED', message: '暫時無法讀取' } }) })
+        await route.fulfill({ status: failureStatus, contentType: 'application/json', body: JSON.stringify({ error: { code: failureStatus === 403 ? 'FORBIDDEN' : 'QUERY_FAILED', message: '無法讀取' } }) })
       } else {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
           id: 'cmd-action-ui', actor_id: session.actor_id, idempotency_key: 'original-key',
@@ -53,6 +54,16 @@ test('共用操作頁在命令狀態讀取失敗時停用舊狀態操作', async
     failRead = true
     await page.getByRole('button', { name: /更\s*新/ }).click()
     await expect(page.getByRole('button', { name: '執行另一個操作' })).toBeDisabled()
+
+    failureStatus = 403
+    await page.getByRole('button', { name: /更\s*新/ }).click()
+    await expect(page.getByText('命令狀態無法載入')).toBeVisible()
+    await expect(page.getByText('命令 ID')).toHaveCount(0)
+    await expect(page.getByText('無法更新命令狀態；以下是上次成功讀取的資料')).toHaveCount(0)
+
+    failRead = false
+    await page.getByRole('button', { name: /重\s*試/ }).click()
+    await expect(page.getByText('命令 ID')).toBeVisible()
   } finally {
     await app.stop()
   }

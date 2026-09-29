@@ -43,6 +43,24 @@ type PriceMigration struct {
 	Items                []PriceMigrationItem
 }
 
+// PriceMigrationSummary keeps the admin read bounded even for large batches.
+type PriceMigrationSummary struct {
+	ID                   string
+	Cohort               string
+	TargetPriceVersionID string
+	Status               string
+	ItemCount            int64
+	PendingCount         int64
+	AppliedCount         int64
+	ConflictedCount      int64
+	SkippedCount         int64
+}
+
+type PriceMigrationItemPage struct {
+	Items []PriceMigrationItem
+	Next  string
+}
+
 func migratePriceMigrations(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS price_migrations (
 id TEXT PRIMARY KEY,
@@ -66,7 +84,8 @@ effective_at INTEGER NOT NULL,
 status TEXT NOT NULL CHECK(status IN ('pending','applied','conflicted','skipped')),
 	conflict_reason TEXT,
 	PRIMARY KEY(migration_id,subscription_id));
-CREATE UNIQUE INDEX IF NOT EXISTS one_pending_price_migration ON price_migration_items(subscription_id) WHERE status IN ('pending','conflicted');`)
+CREATE UNIQUE INDEX IF NOT EXISTS one_pending_price_migration ON price_migration_items(subscription_id) WHERE status IN ('pending','conflicted');
+CREATE INDEX IF NOT EXISTS price_migration_items_status_page ON price_migration_items(migration_id,status,subscription_id);`)
 	if err != nil {
 		return err
 	}
@@ -259,6 +278,67 @@ func (l *Lab) planPriceMigrationTx(ctx context.Context, tx *sql.Tx, at time.Time
 
 func (l *Lab) PriceMigration(ctx context.Context, id string) (PriceMigration, error) {
 	return loadPriceMigration(ctx, l.db, id)
+}
+
+func (l *Lab) PriceMigrationSummary(ctx context.Context, id string) (PriceMigrationSummary, error) {
+	var m PriceMigrationSummary
+	err := l.db.QueryRowContext(ctx, `SELECT m.id,m.cohort,m.target_price_version_id,m.status,
+		COUNT(i.subscription_id),
+		COALESCE(SUM(CASE WHEN i.status='pending' THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN i.status='applied' THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN i.status='conflicted' THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN i.status='skipped' THEN 1 ELSE 0 END),0)
+		FROM price_migrations m LEFT JOIN price_migration_items i ON i.migration_id=m.id
+		WHERE m.id=? GROUP BY m.id,m.cohort,m.target_price_version_id,m.status`, id).
+		Scan(&m.ID, &m.Cohort, &m.TargetPriceVersionID, &m.Status, &m.ItemCount,
+			&m.PendingCount, &m.AppliedCount, &m.ConflictedCount, &m.SkippedCount)
+	return m, err
+}
+
+// PriceMigrationItems uses the subscription ID as a stable keyset cursor. A
+// status filter reflects the database at query time, so callers should start
+// again from the first page after changing item states.
+func (l *Lab) PriceMigrationItems(ctx context.Context, id, status, after string, limit int) (PriceMigrationItemPage, error) {
+	if limit < 1 || limit > 100 {
+		return PriceMigrationItemPage{}, ErrConflict
+	}
+	var exists int
+	if err := l.db.QueryRowContext(ctx, `SELECT 1 FROM price_migrations WHERE id=?`, id).Scan(&exists); err != nil {
+		return PriceMigrationItemPage{}, err
+	}
+	query := `SELECT subscription_id,from_price_version_id,target_price_version_id,seat_quantity,expected_revision,prior_amount_minor,target_amount_minor,current_entitlement_status,projected_entitlement_rule,effective_at,status,COALESCE(conflict_reason,'')
+		FROM price_migration_items WHERE migration_id=? AND subscription_id>?`
+	args := []any{id, after}
+	if status != "" {
+		query += ` AND status=?`
+		args = append(args, status)
+	}
+	query += ` ORDER BY subscription_id LIMIT ?`
+	args = append(args, limit+1)
+	rows, err := l.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return PriceMigrationItemPage{}, err
+	}
+	defer rows.Close()
+	page := PriceMigrationItemPage{Items: make([]PriceMigrationItem, 0, limit)}
+	for rows.Next() {
+		var item PriceMigrationItem
+		var effective int64
+		item.MigrationID = id
+		if err := rows.Scan(&item.SubscriptionID, &item.FromPriceVersionID, &item.TargetPriceVersionID, &item.SeatQuantity, &item.ExpectedRevision, &item.PriorAmountMinor, &item.TargetAmountMinor, &item.CurrentEntitlementStatus, &item.ProjectedEntitlementRule, &effective, &item.Status, &item.ConflictReason); err != nil {
+			return PriceMigrationItemPage{}, err
+		}
+		if len(page.Items) == limit {
+			page.Next = page.Items[len(page.Items)-1].SubscriptionID
+			break
+		}
+		item.EffectiveAt = time.Unix(0, effective).UTC()
+		page.Items = append(page.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return PriceMigrationItemPage{}, err
+	}
+	return page, nil
 }
 
 func (l *Lab) PausePriceMigration(ctx context.Context, id string) error {

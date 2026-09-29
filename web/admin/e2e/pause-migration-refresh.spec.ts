@@ -17,7 +17,7 @@ test('價格遷移暫停頁讀取失敗時不允許依舊狀態發出命令', as
       if (failRead) {
         await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'QUERY_FAILED', message: '暫時無法讀取' } }) })
       } else {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ID: id, Cohort: 'default', TargetPriceVersionID: 'price-v2', Status: 'active', Items: [] }) })
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ID: id, Cohort: 'default', TargetPriceVersionID: 'price-v2', Status: 'active', ItemCount: '0', PendingCount: '0', AppliedCount: '0', ConflictedCount: '0', SkippedCount: '0' }) })
       }
     })
 

@@ -128,21 +128,27 @@ export type MigrationDetail = {
   Cohort: string
   TargetPriceVersionID: string
   Status: string
-  Items: {
-    MigrationID: string
-    SubscriptionID: string
-    FromPriceVersionID: string
-    TargetPriceVersionID: string
-    SeatQuantity: string
-    ExpectedRevision: string
-    PriorAmountMinor: string
-    TargetAmountMinor: string
-    CurrentEntitlementStatus: string
-    ProjectedEntitlementRule: string
-    EffectiveAt: string
-    Status: string
-    ConflictReason: string
-  }[]
+  ItemCount: string
+  PendingCount: string
+  AppliedCount: string
+  ConflictedCount: string
+  SkippedCount: string
+}
+
+export type MigrationItem = {
+  MigrationID: string
+  SubscriptionID: string
+  FromPriceVersionID: string
+  TargetPriceVersionID: string
+  SeatQuantity: string
+  ExpectedRevision: string
+  PriorAmountMinor: string
+  TargetAmountMinor: string
+  CurrentEntitlementStatus: string
+  ProjectedEntitlementRule: string
+  EffectiveAt: string
+  Status: string
+  ConflictReason: string
 }
 
 export type SubscriptionDetail = {
@@ -469,6 +475,7 @@ export const api = {
   accountMigrationProvenance: (id: string, cursor = '') => request<CursorPage<AccountMigrationDetail['Provenance'][number]>>(`/account-migrations/${encodeURIComponent(id)}/provenance?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
   customer: (id: string) => request<CustomerDetail>(`/customers/${encodeURIComponent(id)}`),
   migration: (id: string) => request<MigrationDetail>(`/price-migrations/${encodeURIComponent(id)}`),
+  migrationItems: (id: string, status = '', cursor = '') => request<CursorPage<MigrationItem>>(`/price-migrations/${encodeURIComponent(id)}/items?limit=20${status ? `&status=${encodeURIComponent(status)}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
   createPreview: (csrfToken: string, actionID: string, targetID: string, payload: unknown) =>
     request<Preview>('/previews', {
       method: 'POST',

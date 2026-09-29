@@ -4,6 +4,8 @@
 
 React 19＋Ant Design 管理介面已接到本機 Go server。C01–C49 各有管理命令與 UI 操作入口；概覽、資源列表、詳情、命令及批次工作也可讀取。這是本機管理實驗環境，尚未完成 [A01–A30 全項驗收](../design/08-web-admin-test-plan.md)，因此不能把「入口存在」等同於整體交付完成。
 
+價格遷移詳情的 `GET /admin/api/price-migrations/{id}` 現在回傳有界摘要與各狀態計數；`GET /admin/api/price-migrations/{id}/items` 以每頁 1–100 筆的游標查詢逐項資料，支援狀態篩選並回傳觀測時間。游標綁定批次 ID 與篩選條件；項目狀態變更後，應從第一頁重新查詢。前端預設每頁 20 筆，恢復按鈕依全批次衝突數判斷。金額仍以精確的最小貨幣單位字串傳遞。
+
 ## 啟動
 
 1. 需要 Go 1.27、CGO、Node.js 與 pnpm。複製 `.env.example` 為 `.env`，設定 `BILLFORGE_ADMIN_USERNAME` 和 12–72 bytes 的 `BILLFORGE_ADMIN_PASSWORD`；限制 `.env` 讀取權限。可改用程序環境變數，且程序環境優先於檔案。
@@ -48,6 +50,8 @@ React 19＋Ant Design 管理介面已接到本機 Go server。C01–C49 各有�
 
 | 證據 | 結果 | 邊界 |
 | --- | --- | --- |
+| `pnpm --dir web/admin exec playwright test --reporter=dot --output=/tmp/billforge-web-admin-suite-20260928` | 2026-09-28 全套 125 個瀏覽器案例通過；最後前端改動重新建置後，價格遷移詳情與暫停頁 2 個目標案例也再次通過 | 本機 fake provider 與隔離 SQLite；不代表實際支付供應商驗收 |
+| `go test ./api/admin -run TestPriceMigrationItemsAreBoundedAndScoped -count=1`、`playwright test e2e/price-migration-items.spec.ts e2e/pause-migration-refresh.spec.ts` | 真實 SQLite／HTTP 驗 123 筆批次的 50／50／23 分頁、狀態篩選與變更、游標綁定批次與篩選、精確金額、404／400／500；瀏覽器驗 20 筆分頁、篩選與全批次衝突數，且既有暫停頁仍可恢復讀取 | 狀態改變後需從第一頁重新查詢；未宣稱跨請求快照一致 |
 | `go test ./...` | 全套 Go 測試通過；包含 session、CSRF、C01–C49 capability 矩陣、schema v1→v8、命令／收據、lease fencing、批次恢復、fake provider 故障等切片 | 不等於 C01–C49 每種錯誤與瀏覽器情境都已覆蓋 |
 | `go test ./lab -run TestAdminS07 -count=1` | 兩條 S07 管理／領域直接比對通過：付款回應遺失後延遲開通與 funded 更正；帳期邊界 hold、晚到收款、未履行決議後 Basic 續約。逐階段核對金額、來源、provider capture 及命令收據。 | 隔離 SQLite／假服務商的領域驗證；對應瀏覽器情境仍依 A14／A26 盤點。 |
 | `go test ./api/admin -run TestMoneyAndTimePayloadBoundariesRejectBeforeHTTPAdmission -count=1` | 隔離 SQLite、具備相應權限與 CSRF 的真實 HTTP handler 驗金額、費率分母和 UTC 錯誤均被拒於入場前，且無命令；有效大整數字串保留精確度。 | 只覆蓋 C07／C11／C12／C15／C18／C33 指定欄位，不代表所有操作與瀏覽器欄位皆已驗。 |

@@ -65,6 +65,8 @@ go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db
 
 “批次工作”页面列出近期工作、逐项计数和详情链接；游标分页可避免新工作插入后移动已读页面。
 
+“价格迁移”详情显示由服务器计算的各项状态总数。逐项表格每页最多读取 20 条，支持按状态筛选，并以精确的最小货币单位显示金额。应用或跳过项目、恢复批次后，请刷新详情以查看最新计数并重新分页。
+
 具备 `lab.control` 权限时，“实验控制”可查看 fake provider 状态，以及分页的收款和退款记录。这些数据来自独立的本地数据库；API 金额仍以精确的最小货币单位字符串返回。
 
 如需限制管理员权限，可设置 `BILLFORGE_ADMIN_CAPABILITIES=read`，或提供其他以逗号分隔的权限。未设置时，本地管理员拥有完整权限。权限变更需要重启；恢复中的命令会根据新权限和现有外部义务重新判定，详见 [Web Admin 实现记录](docs/implementation/web-admin.md)。

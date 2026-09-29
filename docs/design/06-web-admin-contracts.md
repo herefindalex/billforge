@@ -81,6 +81,8 @@ GET command 回 `status`、`result_refs`、`domain_outcome`、`error`、`created
 
 GET `/overview`；`/quotes`、`/quotes/{id}`；`/customers`、`/customers/{id}`；`/subscriptions`、`/subscriptions/{id}` 及其 `/periods`、`/timeline`、`/entitlement`；`/invoices`、`/invoices/{id}`；`/credits`、`/credits/{id}`；`/payments`、`/payments/{id}`；`/refunds`、`/refunds/{id}`；`/prices`、`/prices/{id}`；`/meters`；`/catalog-selections`；`/price-migrations`、`/price-migrations/{id}` 及 `/items`；`/usage-events`；`/usage-periods/{subscriptionId}/{periodIndex}`；`/contracts`、`/contracts/{id}`；`/reconciliation-runs`、`/reconciliation-runs/{id}`；`/discrepancies`、`/discrepancies/{id}`；`/account-migrations`、`/account-migrations/{legacyId}` 及 `/provenance`、`/shadows`、`/readiness`、`/entitlements/{subscriptionId}`；`/commands`、`/commands/{id}`；`/jobs`、`/jobs/{id}`；`/outbox`；`/lab/status`、`/lab/provider-captures`、`/lab/provider-refunds`（lab.control，分頁）。
 
+`GET /price-migrations/{id}` 回傳批次欄位及 `ItemCount`、`PendingCount`、`AppliedCount`、`ConflictedCount`、`SkippedCount`，不內嵌無界項目陣列。`GET /price-migrations/{id}/items` 接受 `limit`（預設 20，範圍 1–100）、`status`（`pending`、`applied`、`conflicted`、`skipped`）與 `cursor`；回傳 `items`、`next_cursor`、`observed_at`。游標綁定批次 ID 與狀態篩選；狀態變更後需從第一頁重新查詢。金額和計數皆以精確十進位字串輸出。
+
 列表只允許該資源適用的 customer_id、subscription_id、status、time range、ID prefix 等白名單 filters。ready/readiness 只是帶時間的讀取觀測；切換命令仍在交易內再驗證。必要欄位：
 
 | DTO | 必要內容 |

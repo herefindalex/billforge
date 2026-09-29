@@ -231,7 +231,7 @@ func (s *Server) subscriptionDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) migrationDetail(w http.ResponseWriter, r *http.Request) {
-	migration, err := s.lab.PriceMigration(r.Context(), r.PathValue("id"))
+	migration, err := s.lab.PriceMigrationSummary(r.Context(), r.PathValue("id"))
 	if errors.Is(err, sql.ErrNoRows) {
 		apiError(w, http.StatusNotFound, "NOT_FOUND", "Migration not found")
 		return

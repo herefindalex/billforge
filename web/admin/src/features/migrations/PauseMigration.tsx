@@ -56,7 +56,7 @@ export default function PauseMigration({ session }: { session: Session }) {
         { key: 'cohort', label: 'Cohort', children: migration.data.Cohort },
         { key: 'target', label: '目標價格版本', children: migration.data.TargetPriceVersionID },
         { key: 'status', label: '狀態', children: migration.data.Status },
-        { key: 'items', label: '項目數', children: migration.data.Items?.length ?? 0 },
+        { key: 'items', label: '項目數', children: migration.data.ItemCount },
       ]} />
       {migration.data.Status === 'active' && !commandID && <Button className="result-card" danger onClick={confirm} disabled={pendingKey !== null || migration.isError}>暫停未完成項目</Button>}
     </Card>

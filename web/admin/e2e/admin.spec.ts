@@ -4342,6 +4342,58 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key LIKE ?', '%', app.providerPath)).toBe(capturesBefore)
   })
 
+  test('C34 waits for original provider evidence and verifies the same command when it arrives', async ({ page }) => {
+    await signIn(page)
+    const { operationID } = await createAcceptedSubscription(page, `repair-wait-${randomUUID()}`, 'basic')
+    const markSubmitted = 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute("UPDATE payment_operations SET status=\'submitted\' WHERE id=? AND status=\'created\'",(sys.argv[2],)); db.commit()'
+    execFileSync('python3', ['-c', markSubmitted, app.commercePath, operationID])
+    expect(scalar('SELECT status FROM payment_operations WHERE id=?', operationID)).toBe('submitted')
+    const providerKey = scalar('SELECT provider_key FROM payment_operations WHERE id=?', operationID)
+    const amount = scalar('SELECT amount_minor FROM payment_operations WHERE id=?', operationID)
+    const currency = scalar('SELECT currency FROM payment_operations WHERE id=?', operationID)
+    expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', providerKey, app.providerPath)).toBe('0')
+
+    await page.goto(`${app.baseURL}/admin/reconciliation-runs/new`)
+    await page.getByLabel('核對截止時間（UTC）').fill(new Date().toISOString())
+    await page.getByRole('button', { name: '確認執行對帳' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認執行對帳' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const discrepancyID = scalar('SELECT id FROM discrepancies WHERE object_id=? AND kind="payment_unknown"', operationID)
+    expect(scalar('SELECT classification FROM discrepancies WHERE id=?', discrepancyID)).toBe('EXTERNAL_LOOKUP_REQUIRED')
+
+    await page.goto(`${app.baseURL}/admin/discrepancies/${encodeURIComponent(discrepancyID)}`)
+    await page.getByRole('button', { name: '規劃修復' }).click()
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await expect(page.getByText('操作預覽', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '確認修復' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認修復' }).click()
+    await expect(page.getByRole('main').getByText('waiting_verification', { exact: true }).first()).toBeVisible()
+
+    const commandID = scalar('SELECT id FROM admin_commands WHERE action_id="C34" AND target_id=?', discrepancyID)
+    const commandCount = () => count('SELECT COUNT(*) FROM admin_commands WHERE action_id="C34" AND target_id=?', discrepancyID)
+    expect(commandCount()).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(0)
+    expect(scalar('SELECT status FROM repair_operations WHERE discrepancy_id=?', discrepancyID)).toBe('waiting')
+
+    const retryWithoutEvidence = page.waitForResponse((response) => response.url().endsWith(`/admin/api/commands/${encodeURIComponent(commandID)}/resume`) && response.request().method() === 'POST')
+    await page.getByRole('button', { name: '重新查證' }).click()
+    expect((await retryWithoutEvidence).status()).toBe(200)
+    await expect(page.getByRole('main').getByText('waiting_verification', { exact: true }).first()).toBeVisible()
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(0)
+    expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', providerKey, app.providerPath)).toBe('0')
+
+    const recordCapture = 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute("INSERT INTO captures(provider_key,amount_minor,currency,status) VALUES(?,?,?,\'succeeded\')",(sys.argv[2],sys.argv[3],sys.argv[4])); db.commit()'
+    execFileSync('python3', ['-c', recordCapture, app.providerPath, providerKey, amount, currency])
+    await page.getByRole('button', { name: '重新查證' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    expect(commandCount()).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM repair_operations WHERE discrepancy_id=?', discrepancyID)).toBe(1)
+    expect(scalar('SELECT status FROM repair_operations WHERE discrepancy_id=?', discrepancyID)).toBe('verified')
+    expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', providerKey, app.providerPath)).toBe('1')
+    expect(scalar('SELECT status FROM payment_operations WHERE id=?', operationID)).toBe('succeeded')
+  })
+
   test('changed source revision blocks repair and shows the blocked result', async ({ page }) => {
     await signIn(page)
     const { subscriptionID, operationID } = await createPaidSubscription(page, `blocked-repair-${randomUUID()}`, 'basic')

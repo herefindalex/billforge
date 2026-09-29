@@ -80,11 +80,6 @@ func (l *Lab) RepairDiscrepancy(ctx context.Context, discrepancyID, requestKey s
 			}
 		}
 	}
-	if !current {
-		x.Status = "verified"
-		x.Verification = "already absent in reconciliation " + run.ID
-		return x, l.finishRepair(ctx, x)
-	}
 	paymentOperationID := ""
 	if x.Action == "lookup_original_operation" || x.Action == "retry_original_capture" {
 		paymentOperationID = d.ObjectID
@@ -100,6 +95,14 @@ func (l *Lab) RepairDiscrepancy(ctx context.Context, discrepancyID, requestKey s
 				return x, l.finishRepair(ctx, x)
 			}
 		}
+	}
+	// Provider evidence can remove the original finding before its outcome has
+	// been applied to the local payment. Check amount mismatches first, then
+	// look up the original key even when that finding has disappeared.
+	if !current && x.Action != "lookup_original_operation" {
+		x.Status = "verified"
+		x.Verification = "already absent in reconciliation " + run.ID
+		return x, l.finishRepair(ctx, x)
 	}
 	if x.PreconditionRevision != 0 {
 		var current int64

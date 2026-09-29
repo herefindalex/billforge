@@ -5651,4 +5651,44 @@ db.commit()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     expect(count('SELECT COUNT(*) FROM admin_commands WHERE action_id=?', 'C26')).toBe(commandsBefore)
   })
+  test('completed previewed actions replay their original receipt after preview expiry', async ({ page }) => {
+    await signIn(page)
+    const sessionResponse = await page.request.get(`${app.baseURL}/admin/api/session`)
+    const session = await sessionResponse.json() as { csrf_token: string }
+    const script = `
+import json, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+rows = db.execute('''SELECT c.action_id,c.id,c.idempotency_key,c.target_id,c.preview_id,c.payload_json
+  FROM admin_commands c WHERE c.actor_id='local-admin' AND c.status='succeeded'
+  AND COALESCE(c.preview_id,'')<>''
+  AND EXISTS(SELECT 1 FROM admin_command_receipts r WHERE r.command_id=c.id)
+  ORDER BY c.rowid''').fetchall()
+selected = {}
+for row in rows:
+    selected.setdefault(row[0], row)
+db.executemany("UPDATE admin_previews SET expires_at='2000-01-01T00:00:00Z' WHERE id=?", [(row[4],) for row in selected.values()])
+db.commit()
+print(json.dumps(list(selected.values())))
+`
+    const rows = JSON.parse(execFileSync('python3', ['-c', script, app.commercePath], { encoding: 'utf8' })) as Array<[string, string, string, string, string, string]>
+    const expected = 'C02 C03 C04 C05 C06 C07 C08 C09 C11 C12 C13 C14 C15 C16 C18 C19 C20 C21 C22 C24 C25 C27 C28 C29 C30 C31 C32 C34 C35 C36 C39 C40 C41 C42 C43 C44 C45'.split(' ')
+    expect(rows.map(([action]) => action).sort()).toEqual(expected.sort())
+    const commandsBefore = count('SELECT COUNT(*) FROM admin_commands')
+    const receiptsBefore = count('SELECT COUNT(*) FROM admin_command_receipts')
+    for (const [action, commandID, key, targetID, previewID, payloadJSON] of rows) {
+      const headers = { Origin: app.baseURL, 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': key }
+      const original = { action_id: action, target_id: targetID, preview_id: previewID, payload: JSON.parse(payloadJSON) }
+      const replay = await page.request.post(`${app.baseURL}/admin/api/commands`, { headers, data: original })
+      expect(replay.status(), `${action} replay: ${await replay.text()}`).toBe(200)
+      expect((await replay.json()).id).toBe(commandID)
+      const changedIntent = await page.request.post(`${app.baseURL}/admin/api/commands`, {
+        headers,
+        data: { ...original, preview_id: 'prev_different_intent' },
+      })
+      expect(changedIntent.status(), `${action} changed intent: ${await changedIntent.text()}`).toBe(409)
+      expect((await changedIntent.json()).error.code).toBe('IDEMPOTENCY_CONFLICT')
+    }
+    expect(count('SELECT COUNT(*) FROM admin_commands')).toBe(commandsBefore)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts')).toBe(receiptsBefore)
+  })
 })

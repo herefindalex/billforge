@@ -169,6 +169,133 @@ func TestAdminCreatePaymentReceiptFailureRestoresOriginalCollectionUntilRecovery
 	}
 }
 
+func TestAdminRetryPaymentReceiptFailureRecoversOneObligation(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	commerce, provider := filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db")
+	l, err := Open(commerce, provider, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	quote, err := l.CreateQuote(ctx, "retry-receipt-failure-customer", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := l.AcceptQuote(ctx, quote.ID, quote.Fingerprint, "retry-receipt-failure-checkout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.SetFakePaymentDecision(ctx, accepted.OperationID, "definitively_failed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.DispatchNext(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	providerAttempts := captureCount(t, l)
+	payload := json.RawMessage(`{}`)
+	preview, err := l.AdminCreatePreview(ctx, "local-admin", "C08", accepted.OperationID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "retry-receipt-failure-key", "C08", accepted.OperationID, payload, preview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.db.ExecContext(ctx, `CREATE TEMP TRIGGER fail_retry_receipt BEFORE INSERT ON admin_command_receipts BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AdminExecuteCommand(ctx, command.ID); err == nil {
+		t.Fatal("receipt failure must roll back retry obligation")
+	}
+	var status string
+	var operations, retryRequests, receipts int
+	if err := l.db.QueryRowContext(ctx, `SELECT status FROM payment_operations WHERE id=?`, accepted.OperationID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?`, accepted.InvoiceID).Scan(&operations); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_retry_requests WHERE key=?`, "admin:"+command.ID).Scan(&retryRequests); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if status != "definitively_failed" || operations != 1 || retryRequests != 0 || receipts != 0 || captureCount(t, l) != providerAttempts {
+		t.Fatalf("failed receipt changed collection: status=%s operations=%d retry_requests=%d receipts=%d", status, operations, retryRequests, receipts)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = Open(commerce, provider, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := l.AdminResumeAccepted(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, err = l.AdminCommand(ctx, command.ID)
+	if err != nil || command.Status != "succeeded" {
+		t.Fatalf("retry command did not recover: %+v err=%v", command, err)
+	}
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "retry-receipt-failure-key", "C08", accepted.OperationID, payload, preview.ID)
+	if err != nil || !replay || replayed.ID != command.ID {
+		t.Fatalf("same request key changed recovered command: %+v replay=%v err=%v", replayed, replay, err)
+	}
+	var refs map[string]string
+	if err := json.Unmarshal(command.ResultRefs, &refs); err != nil {
+		t.Fatal(err)
+	}
+	newOperationID := refs["operation_id"]
+	if newOperationID == "" || newOperationID == accepted.OperationID || refs["failed_operation_id"] != accepted.OperationID || refs["amount_minor"] != "2000" {
+		t.Fatalf("wrong recovered retry references: %+v", refs)
+	}
+	var newStatus, outboxStatus string
+	if err := l.db.QueryRowContext(ctx, `SELECT status FROM payment_operations WHERE id=?`, newOperationID).Scan(&newStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT status FROM payment_operations WHERE id=?`, accepted.OperationID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT status FROM outbox WHERE id=?`, "capture:"+newOperationID).Scan(&outboxStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?`, accepted.InvoiceID).Scan(&operations); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_retry_requests WHERE key=? AND operation_id=?`, "admin:"+command.ID, newOperationID).Scan(&retryRequests); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if status != "definitively_failed" || newStatus != "created" || outboxStatus != "pending" || operations != 2 || retryRequests != 1 || receipts != 1 || captureCount(t, l) != providerAttempts {
+		t.Fatalf("recovered retry: old=%s new=%s outbox=%s operations=%d retry_requests=%d receipts=%d", status, newStatus, outboxStatus, operations, retryRequests, receipts)
+	}
+	if _, err := l.DispatchCapture(ctx, newOperationID, ""); err != nil {
+		t.Fatal(err)
+	}
+	balance, err := l.Balance(ctx, accepted.InvoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT status FROM payment_operations WHERE id=?`, newOperationID).Scan(&newStatus); err != nil {
+		t.Fatal(err)
+	}
+	if newStatus != "succeeded" || balance.GrossCapturedMinor != 2000 || balance.OutstandingMinor != 0 || captureCount(t, l) != providerAttempts+1 {
+		t.Fatalf("recovered retry did not collect exactly once: status=%s balance=%+v", newStatus, balance)
+	}
+}
+
 func TestAdminRetryPaymentTargetsDefinitivelyFailedOperation(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

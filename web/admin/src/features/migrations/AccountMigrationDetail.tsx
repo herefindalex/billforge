@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Form, Input, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError, type MigrationThresholds } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type MigrationThresholds } from '../../api/client'
 import { isNonNegativeInt64String } from '../../api/validation'
 
 const int64Rule = { validator: async (_: unknown, value: string | undefined) => {
@@ -30,10 +30,12 @@ export default function AccountMigrationDetail() {
   const readiness = useQuery({ queryKey: ['account-migration-readiness', id, limits], queryFn: () => api.accountMigrationReadiness(id, limits!), enabled: id !== '' && limits !== null })
   const entitlement = useQuery({ queryKey: ['account-migration-entitlement', id, subscriptionID], queryFn: () => api.accountMigrationEntitlement(id, subscriptionID!), enabled: id !== '' && subscriptionID !== null })
   if (query.isPending) return <Skeleton active />
-  if (query.isError) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
     return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到帳戶遷移' : status === 403 ? '沒有權限查看帳戶遷移' : '帳戶遷移無法載入'} subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   }
+  if (!query.data) return null
+  const stale = query.isError
   const detail = query.data.migration
   const link = detail.Link
   return <div className="form-page">
@@ -42,6 +44,7 @@ export default function AccountMigrationDetail() {
       {link.Stopped && <Tag color="error">已停止</Tag>}
       {query.isFetching && <Tag>更新中</Tag>}
     </Space>
+    {stale && <Alert type="warning" showIcon className="result-card" message="無法更新帳戶遷移；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(query.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void query.refetch()}>重試</Button></Space>} />}
     <Typography.Paragraph type="secondary">資料查詢時間：{dateText(query.data.observed_at)}。讀取來源與寫入來源分開列示；停止遷移會阻擋新操作，既有 owner 與金融歷史仍保留。</Typography.Paragraph>
     {link.Stopped && <Alert type="warning" showIcon className="form-alert" message="遷移已停止" description={`原因：${link.StopReason || '未記錄'}`} />}
     <Card title="帳戶映射與 owner" className="result-card" extra={<Button onClick={() => void query.refetch()}>重新整理</Button>}>
@@ -61,11 +64,11 @@ export default function AccountMigrationDetail() {
         <Form.Item label="報價 P95 上限（毫秒）" name="max_quote_p95_millis" rules={[{ required: true, message: '請輸入報價 P95 上限' }, { pattern: /^[1-9]\d*$/, message: '請輸入正整數' }, int64Rule]}><Input inputMode="numeric" /></Form.Item>
         <Form.Item label="未知付款上限" name="max_unknown_payments" rules={[{ required: true, message: '請輸入未知付款上限' }, { pattern: /^\d+$/, message: '請輸入非負整數' }, int64Rule]}><Input inputMode="numeric" /></Form.Item>
         <Form.Item label="未結對帳差異上限" name="max_open_discrepancies" rules={[{ required: true, message: '請輸入未結差異上限' }, { pattern: /^\d+$/, message: '請輸入非負整數' }, int64Rule]}><Input inputMode="numeric" /></Form.Item>
-        <Button type="primary" htmlType="submit">計算 Readiness</Button>
+        <Button type="primary" htmlType="submit" disabled={stale}>計算 Readiness</Button>
       </Form>
       {readiness.isFetching && <Skeleton active className="result-card" />}
       {readiness.isError && <Alert type="error" showIcon className="form-alert" message="Readiness 無法載入" description={<Button onClick={() => void readiness.refetch()}>重試</Button>} />}
-      {readiness.data && !readiness.isFetching && <>
+      {readiness.data && !readiness.isFetching && !readiness.isError && !stale && <>
         <Typography.Paragraph className="result-card">使用門檻：P95 ≤ {limits?.max_quote_p95_millis} ms、未知付款 ≤ {limits?.max_unknown_payments}、未結差異 ≤ {limits?.max_open_discrepancies}。觀測時間：{dateText(readiness.data.observed_at)}</Typography.Paragraph>
         <Descriptions bordered size="small" column={1} items={[
           { key: 'ready', label: '可切換', children: yesNo(readiness.data.readiness.Ready) },
@@ -83,11 +86,11 @@ export default function AccountMigrationDetail() {
       <Typography.Paragraph type="secondary">輸入訂閱 ID，查詢此帳戶目前的讀取 owner 與適配器實際回傳的權益狀態。</Typography.Paragraph>
       <Form layout="vertical" onFinish={(values: { subscription_id: string }) => setSubscriptionID(values.subscription_id)}>
         <Form.Item label="訂閱 ID" name="subscription_id" rules={[{ required: true, message: '請輸入訂閱 ID' }]}><Input autoComplete="off" /></Form.Item>
-        <Button htmlType="submit">查詢權益</Button>
+        <Button htmlType="submit" disabled={stale}>查詢權益</Button>
       </Form>
       {entitlement.isFetching && <Skeleton active className="result-card" />}
       {entitlement.isError && <Alert type="error" showIcon className="form-alert" message="Adapter 權益無法載入" description={<Button onClick={() => void entitlement.refetch()}>重試</Button>} />}
-      {entitlement.data && !entitlement.isFetching && <Descriptions bordered size="small" column={1} className="result-card" items={[
+      {entitlement.data && !entitlement.isFetching && !entitlement.isError && !stale && <Descriptions bordered size="small" column={1} className="result-card" items={[
         { key: 'id', label: '訂閱 ID', children: subscriptionID },
         { key: 'owner', label: '讀取 owner', children: <Tag>{entitlement.data.entitlement.Owner}</Tag> },
         { key: 'status', label: '權益狀態', children: entitlement.data.entitlement.Status },
@@ -96,12 +99,12 @@ export default function AccountMigrationDetail() {
       ]} />}
     </Card>
     <Space wrap className="result-card">
-      <Button disabled={link.Stopped} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/shadow-quotes`)}>比對報價</Button>
-      <Button disabled={link.Stopped} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/shadow-entitlements`)}>比對權益</Button>
-      <Button disabled={link.Stopped} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/provenance`)}>回填來源</Button>
-      <Button disabled={link.Stopped || link.ReadOwner === 'commerce'} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/switch-read`)}>切換讀取</Button>
-      <Button disabled={link.Stopped || link.ReadOwner !== 'commerce' || link.WriterOwner === 'commerce'} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/switch-writer`)}>切換寫入</Button>
-      <Button danger disabled={link.Stopped} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/stop`)}>停止遷移</Button>
+      <Button disabled={stale || link.Stopped} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/shadow-quotes`)}>比對報價</Button>
+      <Button disabled={stale || link.Stopped} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/shadow-entitlements`)}>比對權益</Button>
+      <Button disabled={stale || link.Stopped} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/provenance`)}>回填來源</Button>
+      <Button disabled={stale || link.Stopped || link.ReadOwner === 'commerce'} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/switch-read`)}>切換讀取</Button>
+      <Button disabled={stale || link.Stopped || link.ReadOwner !== 'commerce' || link.WriterOwner === 'commerce'} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/switch-writer`)}>切換寫入</Button>
+      <Button danger disabled={stale || link.Stopped} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/stop`)}>停止遷移</Button>
     </Space>
     <Card title="Shadow 比對" className="result-card" extra={<Button onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/shadow-history`)}>查看完整歷史</Button>}>
       {detail.ShadowsTruncated && <Alert type="warning" showIcon message="僅顯示最近 100 筆比對" />}
@@ -123,7 +126,7 @@ export default function AccountMigrationDetail() {
         { title: '價格版本', dataIndex: 'PriceVersionID' },
         { title: '狀態', dataIndex: 'Status', render: (value: string) => <Tag>{value}</Tag> },
         { title: '證據', dataIndex: 'Evidence' },
-        { title: '操作', render: (_, item) => item.Status === 'manual_review' && <Button type="link" onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/provenance/${encodeURIComponent(item.LegacyInvoiceID)}/resolve`)}>處理來源</Button> },
+        { title: '操作', render: (_, item) => item.Status === 'manual_review' && <Button type="link" disabled={stale} onClick={() => navigate(`/account-migrations/${encodeURIComponent(id)}/provenance/${encodeURIComponent(item.LegacyInvoiceID)}/resolve`)}>處理來源</Button> },
       ]} />
     </Card>
     <Card title="遷移事件" className="result-card">

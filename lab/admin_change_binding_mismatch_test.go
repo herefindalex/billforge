@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestAdminChangePreviewRejectsAnotherQuotesBindingForBothModes(t *testing.T) {
@@ -69,5 +70,131 @@ func TestAdminChangePreviewRejectsAnotherQuotesBindingForBothModes(t *testing.T)
 	}
 	if schedules != 0 || upgrades != 0 {
 		t.Fatalf("mismatched quote changed subscription: schedules=%d upgrades=%d", schedules, upgrades)
+	}
+}
+
+func TestAdminChangePreviewRejectsSupersededPriceForBothModes(t *testing.T) {
+	for _, scenario := range []struct{ mode, action string }{{"next_period", "C03"}, {"immediate", "C04"}} {
+		t.Run(scenario.action, func(t *testing.T) {
+			l, clock := openChangingLab(t)
+			ctx := context.Background()
+			if err := l.InitAdmin(ctx); err != nil {
+				t.Fatal(err)
+			}
+			customerID := "superseded-price-" + scenario.action
+			sub := paidBasicSubscription(t, l, customerID)
+			var revision int64
+			if err := l.db.QueryRowContext(ctx, `SELECT revision FROM subscriptions WHERE id=?`, sub.SubscriptionID).Scan(&revision); err != nil {
+				t.Fatal(err)
+			}
+			quote, err := l.CreateQuoteForCohort(ctx, customerID, "pro", "default", 5)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if quote.PriceVersionID != "pro-v1" || quote.AmountMinor != 10000 {
+				t.Fatalf("unexpected original quote: %+v", quote)
+			}
+			binding, err := l.BindChangeQuote(ctx, quote.ID, sub.SubscriptionID, scenario.mode, revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec := proV2Spec()
+			spec.EffectiveFrom = fixedNow.Add(time.Second)
+			if _, err := l.PublishProPrice(ctx, spec); err != nil {
+				t.Fatal(err)
+			}
+			if err := l.SelectCatalogPrice(ctx, "pro", "default", spec.EffectiveFrom, spec.ID); err != nil {
+				t.Fatal(err)
+			}
+			*clock = fixedNow.Add(2 * time.Second)
+			payload, err := json.Marshal(AdminChangePlanPayload{
+				QuoteID: quote.ID, Fingerprint: binding.Fingerprint, Revision: strconv.FormatInt(revision, 10),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := l.AdminCreatePreview(ctx, "local-admin", scenario.action, sub.SubscriptionID, payload); !errors.Is(err, ErrConflict) {
+				t.Fatalf("superseded quote price should reject preview: %v", err)
+			}
+			for _, query := range []string{
+				`SELECT COUNT(*) FROM admin_previews WHERE action_id=? AND target_id=?`,
+				`SELECT COUNT(*) FROM admin_commands WHERE action_id=? AND target_id=?`,
+			} {
+				var count int
+				if err := l.db.QueryRowContext(ctx, query, scenario.action, sub.SubscriptionID).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("rejected preview wrote admin state: count=%d err=%v", count, err)
+				}
+			}
+			for _, query := range []string{
+				`SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=?`,
+				`SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?`,
+			} {
+				var count int
+				if err := l.db.QueryRowContext(ctx, query, sub.SubscriptionID).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("rejected preview wrote financial state: count=%d err=%v", count, err)
+				}
+			}
+			var price string
+			var currentRevision int64
+			if err := l.db.QueryRowContext(ctx, `SELECT price_version_id,revision FROM subscriptions WHERE id=?`, sub.SubscriptionID).Scan(&price, &currentRevision); err != nil || price != "basic-v1" || currentRevision != revision {
+				t.Fatalf("subscription changed after rejected preview: price=%s revision=%d err=%v", price, currentRevision, err)
+			}
+		})
+	}
+}
+
+func TestAdminChangePreviewRejectsChangedRevisionForBothModes(t *testing.T) {
+	for _, scenario := range []struct{ mode, action string }{{"next_period", "C03"}, {"immediate", "C04"}} {
+		t.Run(scenario.action, func(t *testing.T) {
+			l, _ := openChangingLab(t)
+			ctx := context.Background()
+			if err := l.InitAdmin(ctx); err != nil {
+				t.Fatal(err)
+			}
+			customerID := "changed-revision-" + scenario.action
+			sub := paidBasicSubscription(t, l, customerID)
+			var revision int64
+			if err := l.db.QueryRowContext(ctx, `SELECT revision FROM subscriptions WHERE id=?`, sub.SubscriptionID).Scan(&revision); err != nil {
+				t.Fatal(err)
+			}
+			quote, err := l.CreateQuoteForCohort(ctx, customerID, "pro", "default", 5)
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding, err := l.BindChangeQuote(ctx, quote.ID, sub.SubscriptionID, scenario.mode, revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := l.db.ExecContext(ctx, `UPDATE subscriptions SET revision=revision+1 WHERE id=?`, sub.SubscriptionID); err != nil {
+				t.Fatal(err)
+			}
+			payload, err := json.Marshal(AdminChangePlanPayload{
+				QuoteID: quote.ID, Fingerprint: binding.Fingerprint, Revision: strconv.FormatInt(revision, 10),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := l.AdminCreatePreview(ctx, "local-admin", scenario.action, sub.SubscriptionID, payload); !errors.Is(err, ErrConflict) {
+				t.Fatalf("changed subscription revision should reject preview: %v", err)
+			}
+			for _, query := range []string{
+				`SELECT COUNT(*) FROM admin_previews WHERE action_id=? AND target_id=?`,
+				`SELECT COUNT(*) FROM admin_commands WHERE action_id=? AND target_id=?`,
+			} {
+				var count int
+				if err := l.db.QueryRowContext(ctx, query, scenario.action, sub.SubscriptionID).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("changed revision wrote admin state: count=%d err=%v", count, err)
+				}
+			}
+			for _, query := range []string{
+				`SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=?`,
+				`SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?`,
+			} {
+				var count int
+				if err := l.db.QueryRowContext(ctx, query, sub.SubscriptionID).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("changed revision wrote financial state: count=%d err=%v", count, err)
+				}
+			}
+		})
 	}
 }

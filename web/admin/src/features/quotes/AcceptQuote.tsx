@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Skeleton, Space, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError, type Command, type Preview, type Session } from '../../api/client'
+import { api, HttpError, previewSourceString, type Command, type Preview, type Session } from '../../api/client'
 import Money from '../../components/Money'
 import PreviewWarnings from '../../components/PreviewWarnings'
 import ReadFailureWithRecovery from '../../components/ReadFailureWithRecovery'
@@ -106,7 +106,9 @@ export default function AcceptQuote({ session }: { session: Session }) {
   }, [focusPreviewAfterRejection, quote.isFetching, pending, preview])
   const confirm = () => {
     if (!preview || !quote.data || !canConfirmPreview(preview)) return
-    const intent: Pending = { key: crypto.randomUUID(), quoteID: id, previewID: preview.preview_id, fingerprint: preview.source_versions.quote_fingerprint }
+    const fingerprint = previewSourceString(preview, 'quote_fingerprint')
+    if (!fingerprint) return
+    const intent: Pending = { key: crypto.randomUUID(), quoteID: id, previewID: preview.preview_id, fingerprint }
     modal.confirm({
       title: '確認接受報價',
       content: <Space direction="vertical"><span>報價：{id}</span><span>將建立付款義務：</span><Money minor={preview.impact.amount_minor} currency={preview.impact.currency} /><span>價格版本：{preview.impact.price_version_id}</span>{preview.impact.contract_version_id && <span>合約版本：{preview.impact.contract_version_id}（Net30）</span>}</Space>,
@@ -173,11 +175,11 @@ export default function AcceptQuote({ session }: { session: Session }) {
         { key: 'price', label: '價格版本', children: preview.impact.price_version_id },
         { key: 'contract', label: '合約版本', children: preview.impact.contract_version_id || '非合約報價' },
         { key: 'terms', label: '付款條款', children: preview.impact.payment_terms === 'net30' ? 'Net30，到期後才送出收款' : '一般付款流程' },
-        ...(preview.source_versions.contract_checksum ? [{ key: 'contract_checksum', label: '合約 checksum', children: <Typography.Text copyable>{preview.source_versions.contract_checksum}</Typography.Text> }] : []),
-        { key: 'checksum', label: '價格 checksum', children: <Typography.Text copyable>{preview.source_versions.price_checksum}</Typography.Text> },
+        ...(previewSourceString(preview, 'contract_checksum') ? [{ key: 'contract_checksum', label: '合約 checksum', children: <Typography.Text copyable>{previewSourceString(preview, 'contract_checksum')}</Typography.Text> }] : []),
+        { key: 'checksum', label: '價格 checksum', children: <Typography.Text copyable>{previewSourceString(preview, 'price_checksum') ?? '未知'}</Typography.Text> },
         { key: 'expiry', label: '預覽有效至', children: new Date(preview.expires_at).toLocaleString() },
       ]} />
-      <Button className="result-card" type="primary" danger onClick={confirm} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>確認接受並建立付款義務</Button>
+      <Button className="result-card" type="primary" danger onClick={confirm} disabled={!canConfirmPreview(preview) || !previewSourceString(preview, 'quote_fingerprint') || previewExpired || pending !== null}>確認接受並建立付款義務</Button>
     </Card>}
     {submit.isError && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效，請重新預覽' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '命令未被接受，請檢查輸入' : '操作結果尚未確認'} description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card">

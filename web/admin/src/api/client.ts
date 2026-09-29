@@ -118,9 +118,14 @@ export type Preview = {
   action_id: string
   target_id: string
   expires_at: string
-  source_versions: Record<string, string>
+  source_versions: Record<string, unknown>
   impact: Record<string, string>
   blocking_reasons: string[]
+}
+
+export function previewSourceString(preview: Preview | null, key: string): string | undefined {
+  const value = preview?.source_versions[key]
+  return typeof value === 'string' ? value : undefined
 }
 
 export type MigrationDetail = {

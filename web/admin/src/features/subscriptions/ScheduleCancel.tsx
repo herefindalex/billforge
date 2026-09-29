@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Skeleton, Space, Typography } from 'antd'
 import { useParams } from 'react-router-dom'
-import { api, HttpError, type Command, type Preview, type Session } from '../../api/client'
+import { api, HttpError, previewSourceString, type Command, type Preview, type Session } from '../../api/client'
 import { useStoredCommandID } from '../commands/useStoredCommandID'
 import CommandReadRecovery from '../commands/CommandReadRecovery'
 import PreviewWarnings from '../../components/PreviewWarnings'
@@ -58,7 +58,7 @@ export default function ScheduleCancel({ session }: { session: Session }) {
         if (error.code === 'PREVIEW_STALE') {
           setStaleIntent({
             actionID: intent.actionID,
-            revision: preview?.source_versions.subscription_revision ?? intent.revision,
+            revision: previewSourceString(preview, 'subscription_revision') ?? intent.revision,
             scheduledAt: intent.actionID === 'C06' ? preview?.impact.previous_cancel_at ?? null : null,
           })
           void subscription.refetch()
@@ -70,8 +70,10 @@ export default function ScheduleCancel({ session }: { session: Session }) {
   })
   const confirm = () => {
     if (!preview || !subscription.data || !canConfirmPreview(preview)) return
+    const revision = previewSourceString(preview, 'subscription_revision')
+    if (!revision) return
     const previewResuming = preview.action_id === 'C06'
-    const intent: Pending = { key: crypto.randomUUID(), previewID: preview.preview_id, revision: preview.source_versions.subscription_revision, actionID: previewResuming ? 'C06' : 'C05' }
+    const intent: Pending = { key: crypto.randomUUID(), previewID: preview.preview_id, revision, actionID: previewResuming ? 'C06' : 'C05' }
     modal.confirm({
       title: previewResuming ? '確認撤銷取消排程' : '確認排程取消',
       content: <Space direction="vertical"><span>訂閱：{id}</span><span>原取消時間：{new Date(preview.impact.effective_at ?? preview.impact.previous_cancel_at).toLocaleString()}</span><span>{previewResuming ? '這會撤銷尚未生效的取消排程。' : '這會建立下期取消排程。'}</span></Space>,
@@ -111,10 +113,10 @@ export default function ScheduleCancel({ session }: { session: Session }) {
       <PreviewWarnings preview={preview} expired={previewExpired} />
       <Descriptions column={1} bordered size="small" items={[
         { key: 'effective', label: '原取消時間', children: new Date(preview.impact.effective_at ?? preview.impact.previous_cancel_at).toLocaleString() },
-        { key: 'revision', label: '來源 revision', children: preview.source_versions.subscription_revision },
+        { key: 'revision', label: '來源 revision', children: previewSourceString(preview, 'subscription_revision') ?? '未知' },
         { key: 'expiry', label: '預覽有效至', children: new Date(preview.expires_at).toLocaleString() },
       ]} />
-      <Button className="result-card" danger={preview.action_id !== 'C06'} onClick={confirm} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>{preview.action_id === 'C06' ? '確認恢復取消' : '確認排程取消'}</Button>
+      <Button className="result-card" danger={preview.action_id !== 'C06'} onClick={confirm} disabled={!canConfirmPreview(preview) || !previewSourceString(preview, 'subscription_revision') || previewExpired || pending !== null}>{preview.action_id === 'C06' ? '確認恢復取消' : '確認排程取消'}</Button>
     </Card>}
     {submit.isError && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效，請重新預覽' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '命令未被接受，請檢查輸入' : '命令結果尚未確認'} description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card">

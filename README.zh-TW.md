@@ -4,6 +4,8 @@
 
 Billforge 是本機的商務系統正確性實驗專案。它用 Go 與兩個獨立的 SQLite 資料庫演練定價版本、訂閱與合約、付款與權益、用量關帳、更正、退款、對帳及帳戶遷移。設計背景見[平台計畫](docs/commerce-lab-plan.zh-TW.md)與 [A–D 設計推演](docs/design/README.zh-TW.md)；實作證據見 [MVP 完成追蹤](docs/implementation/mvp-completion-tracker.zh-TW.md)。
 
+[實作與驗收文件索引](docs/implementation/README.zh-TW.md)收錄所有交付紀錄、操作指南與證據盤點。
+
 ## 目前狀態
 
 本機 CLI、API，以及以 React 與 Ant Design 建置的 Web Admin 已可使用。Web Admin 的 A01–A30 驗收仍在進行；[驗收紀錄](docs/implementation/web-admin.zh-TW.md)區分已驗證案例與剩餘檢查。

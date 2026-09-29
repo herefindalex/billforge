@@ -8,6 +8,8 @@ The lab covers price versions, subscriptions, contracts, payments, entitlements,
 
 Web Admin acceptance work is recorded in the [implementation and acceptance guide](docs/implementation/web-admin.md). The [MVP completion tracker](docs/implementation/mvp-completion-tracker.md) identifies what has been implemented and verified.
 
+The [implementation and acceptance index](docs/implementation/README.md) links every delivery record, operator guide, and evidence audit.
+
 ## What the lab tests
 
 - Published price versions preserve the terms behind existing obligations.

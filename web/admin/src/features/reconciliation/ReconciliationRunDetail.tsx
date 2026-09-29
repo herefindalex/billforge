@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError, type ReconciliationRunPage } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type ReconciliationRunPage } from '../../api/client'
 
 function dateText(value: string) {
   return new Date(value).toLocaleString()
@@ -20,10 +20,11 @@ export default function ReconciliationRunDetail() {
   const cursor = cursors[pageNumber]
   const query = useQuery({ queryKey: ['reconciliation-run', id, cursor], queryFn: () => api.reconciliationRun(id, cursor), enabled: id !== '' })
   if (query.isPending) return <Skeleton active />
-  if (query.isError) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
     return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到對帳執行' : status === 403 ? '沒有權限查看對帳執行' : '對帳執行無法載入'} subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   }
+  if (!query.data) return null
   const page: ReconciliationRunPage = query.data.page
   return <div className="form-page">
     <Space align="center" wrap>
@@ -31,6 +32,7 @@ export default function ReconciliationRunDetail() {
       <Tag>{page.Run.FindingCount} 項差異</Tag>
       {query.isFetching && <Tag>更新中</Tag>}
     </Space>
+    {query.isError && <Alert type="warning" showIcon className="result-card" message="無法更新對帳執行；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(query.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void query.refetch()}>重試</Button></Space>} />}
     <Typography.Paragraph type="secondary">資料查詢時間：{dateText(query.data.observed_at)}。下列 expected／actual 是當次執行保存的記錄；目前狀態另行顯示。</Typography.Paragraph>
     <Card title="執行範圍" className="result-card" extra={<Button onClick={() => void query.refetch()}>重新整理</Button>}>
       <Descriptions bordered size="small" column={1} items={[
@@ -59,7 +61,7 @@ export default function ReconciliationRunDetail() {
       <Space wrap className="result-card">
         <Button disabled={pageNumber === 0} onClick={() => setPageNumber(pageNumber - 1)}>上一頁</Button>
         <Typography.Text>第 {pageNumber + 1} 頁</Typography.Text>
-        <Button disabled={!query.data.next_cursor} onClick={() => { setCursors([...cursors.slice(0, pageNumber + 1), query.data.next_cursor]); setPageNumber(pageNumber + 1) }}>下一頁</Button>
+        <Button disabled={query.isError || !query.data.next_cursor} onClick={() => { setCursors([...cursors.slice(0, pageNumber + 1), query.data.next_cursor]); setPageNumber(pageNumber + 1) }}>下一頁</Button>
       </Space>
     </Card>
   </div>

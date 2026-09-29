@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError } from '../../api/client'
+import { api, canShowStaleRead, HttpError } from '../../api/client'
 
 function dateText(value?: string | null) {
   return value ? new Date(value).toLocaleString() : '無'
@@ -16,10 +16,11 @@ export default function DiscrepancyDetail() {
   const navigate = useNavigate()
   const query = useQuery({ queryKey: ['discrepancy', id], queryFn: () => api.discrepancy(id), enabled: id !== '' })
   if (query.isPending) return <Skeleton active />
-  if (query.isError) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
     return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到對帳差異' : status === 403 ? '沒有權限查看對帳差異' : '對帳差異無法載入'} subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   }
+  if (!query.data) return null
   const detail = query.data.discrepancy
   const finding = detail.Discrepancy
   return <div className="form-page">
@@ -29,6 +30,7 @@ export default function DiscrepancyDetail() {
       <Tag>{finding.Classification}</Tag>
       {query.isFetching && <Tag>更新中</Tag>}
     </Space>
+    {query.isError && <Alert type="warning" showIcon className="result-card" message="無法更新對帳差異；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(query.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void query.refetch()}>重試</Button></Space>} />}
     <Typography.Paragraph type="secondary">資料查詢時間：{dateText(query.data.observed_at)}。expected、actual 與證據是對帳時的記錄；修復或人工決議後仍需核對最新事實。</Typography.Paragraph>
     <Card title="差異與證據" className="result-card" extra={<Button onClick={() => void query.refetch()}>重新整理</Button>}>
       <Descriptions bordered size="small" column={1} items={[
@@ -46,8 +48,8 @@ export default function DiscrepancyDetail() {
       ]} />
     </Card>
     {finding.Status !== 'resolved' && <Space wrap className="result-card">
-      <Button onClick={() => navigate(`/discrepancies/${encodeURIComponent(id)}/repair`, { state: { source_revision: String(finding.SourceRevision), evidence: finding.Evidence } })}>規劃修復</Button>
-      <Button onClick={() => navigate(`/discrepancies/${encodeURIComponent(id)}/manual-decisions`)}>記錄人工決議</Button>
+      <Button disabled={query.isError} onClick={() => navigate(`/discrepancies/${encodeURIComponent(id)}/repair`, { state: { source_revision: String(finding.SourceRevision), evidence: finding.Evidence } })}>規劃修復</Button>
+      <Button disabled={query.isError} onClick={() => navigate(`/discrepancies/${encodeURIComponent(id)}/manual-decisions`)}>記錄人工決議</Button>
     </Space>}
     <Card title="發現此差異的對帳執行" className="result-card">
       {detail.RunsTruncated && <Alert type="warning" showIcon message="僅顯示最近 100 次對帳執行" />}

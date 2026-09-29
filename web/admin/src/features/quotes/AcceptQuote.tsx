@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Skeleton, Space, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -30,6 +30,8 @@ export default function AcceptQuote({ session }: { session: Session }) {
   const [preview, setPreview] = useState<Preview | null>(null)
   const previewExpired = usePreviewExpired(preview?.expires_at)
   const [staleAcceptance, setStaleAcceptance] = useState<StaleAcceptance | null>(null)
+  const [focusStaleAcceptance, setFocusStaleAcceptance] = useState(false)
+  const [focusPreviewAfterRejection, setFocusPreviewAfterRejection] = useState(false)
   const [pending, setPending] = useState<Pending | null>(() => loadPending(id))
   const [commandID, setCommandID] = useStoredCommandID(session.actor_id, 'C02', id)
   const quote = useQuery({ queryKey: ['quote', id], queryFn: () => api.quote(id), enabled: id !== '' })
@@ -70,13 +72,38 @@ export default function AcceptQuote({ session }: { session: Session }) {
         setPreview(null)
         if (error.code === 'PREVIEW_STALE') {
           setStaleAcceptance({ fingerprint: intent.fingerprint })
-          void quote.refetch()
+          void quote.refetch().finally(() => setFocusStaleAcceptance(true))
         } else {
           setStaleAcceptance(null)
+          setFocusPreviewAfterRejection(true)
         }
       }
     },
   })
+  useEffect(() => {
+    if (!focusStaleAcceptance || !staleAcceptance || quote.isFetching) return
+    const alert = document.getElementById('stale-quote-acceptance')
+    if (!alert) return
+    const frame = requestAnimationFrame(() => {
+      if (alert.isConnected) {
+        alert.focus()
+        setFocusStaleAcceptance(false)
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusStaleAcceptance, staleAcceptance, quote.isFetching])
+  useEffect(() => {
+    if (!focusPreviewAfterRejection || quote.isFetching || pending !== null) return
+    const button = document.getElementById('quote-accept-preview') as HTMLButtonElement | null
+    if (!button || button.disabled) return
+    const frame = requestAnimationFrame(() => {
+      if (button.isConnected && !button.disabled) {
+        button.focus()
+        setFocusPreviewAfterRejection(false)
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusPreviewAfterRejection, quote.isFetching, pending, preview])
   const confirm = () => {
     if (!preview || !quote.data || !canConfirmPreview(preview)) return
     const intent: Pending = { key: crypto.randomUUID(), quoteID: id, previewID: preview.preview_id, fingerprint: preview.source_versions.quote_fingerprint }
@@ -114,14 +141,14 @@ export default function AcceptQuote({ session }: { session: Session }) {
       ]} />
       {quote.data.ChangeMode && <Alert type="info" showIcon className="result-card" message="這是現有訂閱的變更報價" description="請在原訂閱執行方案變更；此報價不能作為新購接受。" />}
       {!quote.data.Accepted && !commandID && quote.data.ChangeMode && <Button className="result-card" type="primary" onClick={() => navigate(`/subscriptions/${encodeURIComponent(quote.data.ChangeSubscriptionID)}/${quote.data.ChangeMode === 'immediate' ? 'upgrade' : 'schedule-plan'}`, { state: { quote_id: id, fingerprint: quote.data.BindingFingerprint } })}>{quote.data.ChangeMode === 'immediate' ? '前往立即升級' : '前往下期變更'}</Button>}
-      {!quote.data.Accepted && !commandID && !quote.data.ChangeMode && <Button className="result-card" type="primary" onClick={() => createPreview.mutate()} loading={createPreview.isPending} disabled={pending !== null || (staleAcceptance !== null && quote.isFetching)}>預覽接受</Button>}
+      {!quote.data.Accepted && !commandID && !quote.data.ChangeMode && <Button id="quote-accept-preview" className="result-card" type="primary" onClick={() => createPreview.mutate()} loading={createPreview.isPending} disabled={pending !== null || (staleAcceptance !== null && quote.isFetching)}>預覽接受</Button>}
     </Card>
-    {staleAcceptance && <Alert type="warning" showIcon className="result-card" message="原接受預覽已失效，請檢查報價的最新狀態" description={<Descriptions column={1} size="small" items={[
+    {staleAcceptance && <div id="stale-quote-acceptance" tabIndex={-1} aria-label="原接受預覽已失效，請檢查報價的最新狀態" className="result-card"><Alert type="warning" showIcon message="原接受預覽已失效，請檢查報價的最新狀態" description={<Descriptions column={1} size="small" items={[
       { key: 'intent', label: '原操作意圖', children: '接受報價' },
       { key: 'accepted', label: '接受狀態', children: `尚未接受 → ${quote.isFetching ? '重新讀取中…' : quote.data.Accepted ? '已接受' : '尚未接受'}` },
       { key: 'fingerprint', label: '來源 Fingerprint', children: `${staleAcceptance.fingerprint} → ${quote.isFetching ? '重新讀取中…' : quote.data.Fingerprint}` },
       { key: 'next', label: '下一步', children: quote.isFetching ? '正在確認最新狀態…' : quote.data.Accepted ? '報價已接受；請檢查既有訂閱與命令。' : '來源或預覽期限已變更，請重新預覽後再次確認。' },
-    ]} />} />}
+    ]} />} /></div>}
     {pending && !commandID && <Alert type="warning" showIcon className="result-card" message="原命令的結果尚未確認" description={<Space direction="vertical"><span>重試會使用相同 request key 查詢同一命令。</span><Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>查詢原命令</Button></Space>} />}
       {createPreview.isError && <Alert
         type="error"

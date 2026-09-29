@@ -1499,6 +1499,10 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await page.goto(`${app.baseURL}/admin/quotes/${quoteID}/accept`)
     await page.getByRole('button', { name: '預覽接受' }).click()
     await expect(page.getByRole('button', { name: '確認接受並建立付款義務' })).toBeVisible()
+    await page.getByRole('button', { name: '確認接受並建立付款義務' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '返回檢查' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '確認接受並建立付款義務' })).toBeFocused()
 
     const other = await page.context().newPage()
     try {
@@ -1514,6 +1518,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       expect((await response).status()).toBe(409)
       const stale = page.locator('.ant-alert').filter({ hasText: '原接受預覽已失效，請檢查報價的最新狀態' })
       await expect(stale).toBeVisible()
+      await expect(page.locator('#stale-quote-acceptance')).toBeFocused()
       await expect(stale.locator('.ant-descriptions-item').filter({ hasText: '接受狀態' }).getByText('尚未接受 → 已接受')).toBeVisible()
       await expect(page.getByRole('button', { name: '預覽接受' })).toHaveCount(0)
       expect(count('SELECT COUNT(*) FROM subscriptions WHERE quote_id=?', quoteID)).toBe(1)
@@ -1521,6 +1526,41 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     } finally {
       await other.close()
     }
+  })
+
+  test('rejected quote acceptance returns keyboard focus to preview and permits a new intent', async ({ page }) => {
+    await signIn(page)
+    const customerID = `quote-rejected-${randomUUID()}`
+    await page.goto(`${app.baseURL}/admin/quotes/new`)
+    await page.getByRole('textbox', { name: /客戶 ID/ }).fill(customerID)
+    await page.getByRole('textbox', { name: /方案 ID/ }).fill('basic')
+    await page.getByRole('button', { name: '建立報價' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const quoteID = scalar('SELECT id FROM quotes WHERE customer_id=?', customerID)
+    await page.goto(`${app.baseURL}/admin/quotes/${quoteID}/accept`)
+    await page.getByRole('button', { name: '預覽接受' }).click()
+    await expect(page.getByRole('button', { name: '確認接受並建立付款義務' })).toBeVisible()
+
+    await page.route('**/admin/api/commands', async (route) => {
+      if (route.request().method() === 'POST' && (route.request().postData() ?? '').includes('"action_id":"C02"')) {
+        await route.fulfill({ status: 422, contentType: 'application/json', body: '{"error":{"code":"INVALID_PAYLOAD","message":"Injected rejection"}}' })
+      } else {
+        await route.continue()
+      }
+    }, { times: 1 })
+    await page.getByRole('button', { name: '確認接受並建立付款義務' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認接受' }).click()
+    await expect(page.getByText('命令未被接受，請檢查輸入')).toBeVisible()
+    await expect(page.getByRole('button', { name: '預覽接受' })).toBeFocused()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C02' AND target_id=?", quoteID)).toBe(0)
+
+    await page.unroute('**/admin/api/commands')
+    await page.getByRole('button', { name: '預覽接受' }).click()
+    await page.getByRole('button', { name: '確認接受並建立付款義務' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認接受' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C02' AND target_id=?", quoteID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM subscriptions WHERE quote_id=?', quoteID)).toBe(1)
   })
 
   test('an uncertain usage response cannot become a second event intent', async ({ page }) => {

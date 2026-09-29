@@ -35,7 +35,7 @@ export type ActionConfig = {
 }
 
 type Pending = { key: string; previewID?: string; payload: Record<string, unknown> }
-type PreviewRequest = { input: Record<string, unknown>; revision: number }
+type PreviewRequest = { input: Record<string, unknown>; revision: number; showConfirmDialog?: boolean }
 function storageKey(actionID: string, targetID: string) { return `billforge:admin:${actionID}:${targetID}` }
 function loadPending(actionID: string, targetID: string): Pending | null {
   try { const value = sessionStorage.getItem(storageKey(actionID, targetID)); return value ? JSON.parse(value) as Pending : null } catch { return null }
@@ -85,12 +85,12 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
   })
   const createPreview = useMutation({
     mutationFn: ({ input }: PreviewRequest) => api.createPreview(session.csrf_token, config.actionID, id, input),
-    onSuccess: (result, { input, revision }) => {
+    onSuccess: (result, { input, revision, showConfirmDialog }) => {
       if (revision !== formRevision.current) return
       setPreview(result)
       setPayload(input)
       setPreviewInvalidated(false)
-      if (controlPreviewAction) confirm(input, result)
+      if (showConfirmDialog) confirm(input, result)
     },
   })
   const externalAction = config.actionID === 'C09' || config.actionID === 'C16'
@@ -165,7 +165,7 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
    }
    if (input.mode === 'real') delete input.value_utc
   }
-    if (config.preview) createPreview.mutate({ input, revision: formRevision.current })
+    if (config.preview) createPreview.mutate({ input, revision: formRevision.current, showConfirmDialog: controlPreviewAction })
     else confirm(input, null)
   }
   const onValuesChange = () => {

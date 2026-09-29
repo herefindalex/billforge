@@ -3,7 +3,7 @@
 **English** | [繁體中文](phase-e.zh-TW.md) | [简体中文](phase-e.zh-CN.md)
 
 
-Status: The E clip is running `go test ./...` on the console and three CLI demos; Subsequent renewable capabilities see also [F1](phase-f1-renewals.md). The following table records the E-framework at the time, not all of the current programming capabilities; This is not a production environment verification either. Source design is from [Designed Index](../design/README.md).
+Status: The E slice passed `go test ./...` locally and ran three CLI demos. Later renewal capabilities are covered in [F1](phase-f1-renewals.md). The table below records the implementation boundary of E at that time, rather than every capability now in the codebase. This was not production validation. See the [design index](../design/README.md).
 
 ## Making the border
 

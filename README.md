@@ -6,7 +6,9 @@ Billforge is a local lab for testing the correctness of commerce and monetizatio
 
 The lab covers price versions, subscriptions, contracts, payments, entitlements, usage period close, corrections, credits, refunds, reconciliation, and account migration. It provides an interactive CLI, a local API, and a React and Ant Design administration interface.
 
-Web Admin acceptance work is recorded in the [implementation and acceptance guide](docs/implementation/web-admin.md). The [MVP completion tracker](docs/implementation/mvp-completion-tracker.md) identifies what has been implemented and verified.
+## Current status
+
+The local CLI, API, and Web Admin built with React and Ant Design are available. Web Admin A01–A30 acceptance remains in progress. The [implementation and acceptance guide](docs/implementation/web-admin.md) separates verified cases from remaining checks, and the [MVP completion tracker](docs/implementation/mvp-completion-tracker.md) identifies what has been implemented and verified.
 
 The [implementation and acceptance index](docs/implementation/README.md) links every delivery record, operator guide, and evidence audit.
 

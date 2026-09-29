@@ -2,20 +2,20 @@
 
 **English** | [繁體中文](web-admin-action-audit.zh-TW.md) | [简体中文](web-admin-action-audit.zh-CN.md)
 
-Status: **A30 acceptance remains partial** as of 2026-09-29. The action matrix below maps C01–C49 to routes, permissions, previews, and existing tests. The new browser audit establishes one successful original-key replay per action; financial facts and other recovery variants still need case-specific evidence.
+Status: **A30 acceptance remains partial** as of 2026-09-29. The matrix below maps C01–C49 to routes, permissions, previews, and existing tests. The browser audit establishes one successful receipt, original-key replay, and same-key divergent-request rejection for every action; financial facts and other recovery paths still need case-specific evidence.
 
 ## Browser request, receipt, and replay evidence (2026-09-29)
 
-The full Playwright suite passed **155/155** tests. `admin.spec.ts` wrote **104** browser case records. `audit-action-cases.mjs` confirmed that **49/49** actions have a browser command request matched to a successful receipt and an original-key replay.
+The updated `admin.spec.ts` suite passed **104/104** browser cases (16.4 minutes) on 2026-09-29; an earlier full Playwright run passed **155/155** tests. `audit-action-cases.mjs` confirmed that **49/49** actions have a browser request matched to a successful receipt, original-key replay, and a divergent request rejected under that same key.
 
-For each action, the audit replays one captured browser request from a fresh admin session with its original body and idempotency key. It checks that the server returns the original command ID, the command still has exactly one receipt, and no new command row appears. Use a fresh output path for each run:
+For each action, the audit replays one captured browser request in a fresh admin session with its original body and idempotency key. It checks that the server returns the original command ID, exactly one receipt remains, and no command row is added. It then changes a valid request field under the same key, expects `409 IDEMPOTENCY_CONFLICT`, and again checks that no command or receipt was added. Use a fresh output path for each run:
 
 ```sh
 BILLFORGE_E2E_ACTION_CASE_AUDIT=/tmp/billforge-action-cases.jsonl pnpm --dir web/admin test:e2e
 node web/admin/e2e/audit-action-cases.mjs /tmp/billforge-action-cases.jsonl
 ```
 
-This result does not by itself establish every action's financial facts, conflict behavior, or interrupted-response recovery. The case-specific evidence and remaining gaps are recorded below.
+This check covers one request-key path per action. It does not establish every financial fact, source-revision or preview conflict, or recovery after an interrupted response. The case-specific evidence and remaining gaps are recorded below.
 
 ## Shared routes
 

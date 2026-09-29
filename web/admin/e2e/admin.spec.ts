@@ -10,17 +10,23 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
   let app: LocalAdmin
   let lastAuditedCommandRowID = 0
   const browserActions = new Set<string>()
+  const browserCommandKeys = new Set<string>()
 
   test.beforeAll(async () => { app = await startLocalAdmin() })
   test.afterAll(async () => { await app?.stop() })
   test.beforeEach(async ({ page, context }) => {
     if (!process.env.BILLFORGE_E2E_ACTION_CASE_AUDIT) return
     browserActions.clear()
+    browserCommandKeys.clear()
     const observe = (request: Request) => {
       if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/admin/api/commands') return
       try {
         const payload = request.postDataJSON() as { action_id?: unknown }
-        if (typeof payload.action_id === 'string' && /^C\d{2}$/.test(payload.action_id)) browserActions.add(payload.action_id)
+        if (typeof payload.action_id === 'string' && /^C\d{2}$/.test(payload.action_id)) {
+          browserActions.add(payload.action_id)
+          const key = request.headers()['idempotency-key']
+          if (key) browserCommandKeys.add(`${payload.action_id}\u0000${key}`)
+        }
       } catch { /* malformed request; the command response test covers its rejection */ }
     }
     page.on('request', observe)
@@ -31,11 +37,19 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     if (!auditPath) return
     const output = execFileSync('python3', ['-c', `import json, sqlite3, sys
 db = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True)
-rows = list(db.execute('SELECT c.rowid,c.action_id,c.status,EXISTS(SELECT 1 FROM admin_command_receipts r WHERE r.command_id=c.id) FROM admin_commands c WHERE c.rowid>? ORDER BY c.rowid', (int(sys.argv[2]),)))
+rows = list(db.execute('SELECT c.rowid,c.idempotency_key,c.action_id,c.status,EXISTS(SELECT 1 FROM admin_command_receipts r WHERE r.command_id=c.id) FROM admin_commands c WHERE c.rowid>? ORDER BY c.rowid', (int(sys.argv[2]),)))
 print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { encoding: 'utf8' })
-    const rows = JSON.parse(output) as [number, string, string, number][]
+    const rows = JSON.parse(output) as [number, string, string, string, number][]
     if (rows.length > 0) lastAuditedCommandRowID = rows[rows.length - 1][0]
-    appendFileSync(auditPath, JSON.stringify({ test: testInfo.title, browser_actions: [...browserActions].sort(), commands: rows.map(([, action, status, receipt]) => ({ action, status, receipt: receipt === 1 })) }) + '\n')
+    const browserReceiptActions = new Set(rows.filter(([, key, action, status, receipt]) =>
+      status === 'succeeded' && receipt === 1 && browserCommandKeys.has(`${action}\u0000${key}`),
+    ).map(([, , action]) => action))
+    appendFileSync(auditPath, JSON.stringify({
+      test: testInfo.title,
+      browser_actions: [...browserActions].sort(),
+      browser_receipt_actions: [...browserReceiptActions].sort(),
+      commands: rows.map(([, , action, status, receipt]) => ({ action, status, receipt: receipt === 1 })),
+    }) + '\n')
   })
 
   async function signIn(page: Page) {

@@ -119,6 +119,10 @@ React 19＋Ant Design 管理介面已接到本機 Go server。C01–C49 各有�
 | A29 | 本機通過 | Playwright 以新資料庫建置並啟動嵌入式 binary，驗登入、概覽、登出與 58 個路由；付款等待期間重啟同一 binary／SQLite，重新登入後找回原命令並查證。另一個案例先由 CLI binary 建立既有帳單與 provider capture，確認其沒有 admin schema，再啟動 admin binary 升級至 v6；登入後仍可檢視原帳單，金額與 provider capture 不變。純 API binary 已手動驗證；README 提供建置與登入指令。 |
 | A30 | 部分 | [49 個動作證據盤點](web-admin-action-audit.md)列出實際共用 endpoint、逐項 UI 路徑、能力、預覽型態及交易測試入口；命令與預覽的 HTTP admission guard、命令未知欄位拒絕與零寫入已逐項驗證，Playwright 已驗 58 個路由。C12 另有完整瀏覽器抵扣及 SQLite 收據證據。49 項動作現均在盤點表列有瀏覽器測試檔案引用；仍需逐項核對情境是否真正執行該動作，以及每動作的收據／恢復、其餘輸入與衝突矩陣，A30 維持未結案。 C15 新增真實雙分頁預覽失效與重確認案例，直接核對兩筆成功收據、單筆失敗原命令及 grant 預算。  C42 的瀏覽器案例現直接執行切寫並驗回應遺失後原鍵恢復，核對唯一命令、收據與切換事件。  C43 已補真實停止與後續 C05 阻擋證據，並區分帳戶已停止與預覽來源變動的錯誤。 C07／C08／C09 已增付款建立與派送交錯的跨實例 Go／SQLite 證據；這不取代其他動作缺少的完整矩陣。 |
 
+### A30 瀏覽器命令與收據關聯（2026-09-28）
+
+以完整 Playwright 回歸（132／132）產生的 93 筆管理情境稽核檔，逐項核對 C01–C49 的瀏覽器請求冪等鍵、成功命令及收據，結果 **49／49**；反例資料證明同一測試中不相關的 API 成功命令不再被算入。詳見[逐動作證據盤點](web-admin-action-audit.md)。這補足瀏覽器入口與收據的關聯，尚未完成其餘逐動作來源守衛、錯誤與恢復矩陣，A30 保持部分完成。
+
 ### A23／C34 對帳修復的付款範圍（2026-09-28）
 
 `RepairDiscrepancy` 對 `provider_amount_mismatch` 的阻擋依付款操作 ID 判斷；`pending_outbox` 先由 outbox 取得原付款操作 ID。同一付款金額不符時，原操作查證與 outbox 重試都維持 `blocked`，不增加支付服務 capture。另一付款金額不符時，原付款可沿原 key 查證或重試，差異仍留待人工處理。`lab/reconciliation_test.go` 的三個定向案例與 `go test ./lab -run '^TestS12' -count=1`（7／7）驗證此範圍。這只補強直接領域路徑的證據；A23 與 A30 的完整 HTTP／UI 逐項驗收仍未簽核。

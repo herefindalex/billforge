@@ -31,7 +31,7 @@ for (const action of expected) {
     withoutReceipt.push(action)
   }
   if (!entries.some((entry) => entry.browser_actions?.includes(action))) withoutBrowserRequest.push(action)
-  if (!cases.some((entry) => entry.browser_actions?.includes(action) && entry.commands.some((command) => command.action === action && command.status === 'succeeded' && command.receipt))) {
+  if (!cases.some((entry) => entry.browser_actions?.includes(action) && entry.browser_receipt_actions?.includes(action) && entry.commands.some((command) => command.action === action && command.status === 'succeeded' && command.receipt))) {
     withoutBrowserReceipt.push(action)
   }
   if (selectedAction === action) {
@@ -39,16 +39,16 @@ for (const action of expected) {
     for (const entry of cases) {
       const outcomes = entry.commands.filter((command) => command.action === action)
         .map((command) => `${command.status}${command.receipt ? '+receipt' : ''}`)
-      console.log(`- ${entry.test}: ${outcomes.join(', ')}; browser request: ${entry.browser_actions?.includes(action) ? 'yes' : 'no'}`)
+      console.log(`- ${entry.test}: ${outcomes.join(', ')}; browser request: ${entry.browser_actions?.includes(action) ? 'yes' : 'no'}; matched browser receipt: ${entry.browser_receipt_actions?.includes(action) ? 'yes' : 'no'}`)
     }
   }
 }
 
 console.log(`Inspected ${entries.length} browser cases; ${49 - missing.length}/49 actions admitted and ${49 - withoutReceipt.length}/49 have a succeeded command with a receipt at case end.`)
-console.log(`${49 - withoutBrowserReceipt.length}/49 actions have a browser request and a succeeded command with a receipt in the same case.`)
+console.log(`${49 - withoutBrowserReceipt.length}/49 actions have a browser request matched by idempotency key to a succeeded command receipt.`)
 console.log(`No case: ${missing.join(', ') || '(none)'}`)
 console.log(`No succeeded receipt: ${withoutReceipt.join(', ') || '(none)'}`)
 console.log(`No browser request: ${withoutBrowserRequest.join(', ') || '(none)'}`)
-console.log(`No browser request with a succeeded receipt in the same case: ${withoutBrowserReceipt.join(', ') || '(none)'}`)
+console.log(`No browser request matched to a succeeded receipt: ${withoutBrowserReceipt.join(', ') || '(none)'}`)
 console.log('This audit does not validate the financial facts or recovery path of each action.')
-if (missing.length > 0 || withoutReceipt.length > 0 || withoutBrowserReceipt.length > 0) process.exitCode = 1
+if (missing.length > 0 || withoutReceipt.length > 0 || withoutBrowserRequest.length > 0 || withoutBrowserReceipt.length > 0) process.exitCode = 1

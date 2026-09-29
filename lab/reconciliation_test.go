@@ -107,6 +107,102 @@ func TestS12RetryOriginalCaptureAndUnknownLookup(t *testing.T) {
 	}
 }
 
+func TestS12UnrelatedProviderMismatchDoesNotBlockOriginalLookup(t *testing.T) {
+	l, _, _ := openTestLab(t)
+	ctx := context.Background()
+	first := purchase(t, l)
+	if _, err := l.DispatchNext(ctx, "lost_response"); err != ErrPaymentUnknown {
+		t.Fatalf("expected unknown response for first payment, got %v", err)
+	}
+	quote, err := l.CreateQuote(ctx, "customer-2", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := l.AcceptQuote(ctx, quote.ID, quote.Fingerprint, "checkout-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.provider.db.ExecContext(ctx, `INSERT INTO captures(provider_key,amount_minor,currency,status) VALUES(?,2100,'USD','succeeded')`, "capture:"+second.InvoiceID); err != nil {
+		t.Fatal(err)
+	}
+	run := reconcileNow(t, l)
+	lookup := findingFor(t, run, "provider_success_unobserved", first.OperationID)
+	findingFor(t, run, "provider_amount_mismatch", second.OperationID)
+	repair, err := l.RepairDiscrepancy(ctx, lookup.ID, "repair:unrelated-mismatch")
+	if err != nil || repair.Action != "lookup_original_operation" || repair.Status != "verified" {
+		t.Fatalf("unrelated amount mismatch blocked original lookup: %+v %v", repair, err)
+	}
+	if got := snapshot(t, l, first.SubscriptionID).OperationStatus; got != "succeeded" {
+		t.Fatalf("first original payment did not settle: %s", got)
+	}
+	if count := captureCount(t, l); count != 2 {
+		t.Fatalf("repair created another provider capture: %d", count)
+	}
+	findingFor(t, reconcileNow(t, l), "provider_amount_mismatch", second.OperationID)
+}
+
+func TestS12OwnProviderMismatchBlocksOriginalLookupAndOutboxRepair(t *testing.T) {
+	l, _, _ := openTestLab(t)
+	ctx := context.Background()
+	r := purchase(t, l)
+	if _, err := l.provider.db.ExecContext(ctx, `INSERT INTO captures(provider_key,amount_minor,currency,status) VALUES(?,2100,'USD','succeeded')`, "capture:"+r.InvoiceID); err != nil {
+		t.Fatal(err)
+	}
+	run := reconcileNow(t, l)
+	findingFor(t, run, "provider_amount_mismatch", r.OperationID)
+	for _, tc := range []struct {
+		kind string
+		key  string
+	}{
+		{"provider_success_unobserved", "repair:own-mismatch-lookup"},
+		{"pending_outbox", "repair:own-mismatch-outbox"},
+	} {
+		d := findingFor(t, run, tc.kind, "")
+		repair, err := l.RepairDiscrepancy(ctx, d.ID, tc.key)
+		if err != nil || repair.Status != "blocked" || repair.Verification != "provider amount mismatch requires manual investigation" {
+			t.Fatalf("%s repair should be blocked: %+v %v", tc.kind, repair, err)
+		}
+	}
+	if count := captureCount(t, l); count != 1 {
+		t.Fatalf("blocked repairs changed provider captures: %d", count)
+	}
+}
+
+func TestS12UnrelatedProviderMismatchDoesNotBlockOriginalRetry(t *testing.T) {
+	l, _, _ := openTestLab(t)
+	ctx := context.Background()
+	first := purchase(t, l)
+	quote, err := l.CreateQuote(ctx, "customer-2", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := l.AcceptQuote(ctx, quote.ID, quote.Fingerprint, "checkout-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.provider.db.ExecContext(ctx, `INSERT INTO captures(provider_key,amount_minor,currency,status) VALUES(?,2100,'USD','succeeded')`, "capture:"+second.InvoiceID); err != nil {
+		t.Fatal(err)
+	}
+	var outboxID string
+	if err := l.db.QueryRowContext(ctx, `SELECT id FROM outbox WHERE object_id=? AND kind='capture'`, first.OperationID).Scan(&outboxID); err != nil {
+		t.Fatal(err)
+	}
+	run := reconcileNow(t, l)
+	retry := findingFor(t, run, "pending_outbox", outboxID)
+	findingFor(t, run, "provider_amount_mismatch", second.OperationID)
+	repair, err := l.RepairDiscrepancy(ctx, retry.ID, "repair:unrelated-mismatch-retry")
+	if err != nil || repair.Action != "retry_original_capture" || repair.Status != "verified" {
+		t.Fatalf("unrelated amount mismatch blocked original retry: %+v %v", repair, err)
+	}
+	if got := snapshot(t, l, first.SubscriptionID).OperationStatus; got != "succeeded" {
+		t.Fatalf("first original payment status = %s", got)
+	}
+	if count := captureCount(t, l); count != 2 {
+		t.Fatalf("repair created unexpected provider captures: %d", count)
+	}
+	findingFor(t, reconcileNow(t, l), "provider_amount_mismatch", second.OperationID)
+}
+
 func TestS12ManualReviewForUnknownAndMismatchedProviderCapture(t *testing.T) {
 	l, _, _ := openTestLab(t)
 	ctx := context.Background()

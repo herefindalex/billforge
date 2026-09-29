@@ -70,7 +70,6 @@ func (l *Lab) RepairDiscrepancy(ctx context.Context, discrepancyID, requestKey s
 		return RepairOperation{}, err
 	}
 	current := false
-	unsafePayment := false
 	for _, f := range run.Findings {
 		if f.ID == d.ID {
 			current = true
@@ -80,19 +79,27 @@ func (l *Lab) RepairDiscrepancy(ctx context.Context, discrepancyID, requestKey s
 				return x, l.finishRepair(ctx, x)
 			}
 		}
-		if (x.Action == "lookup_original_operation" || x.Action == "retry_original_capture") && f.Kind == "provider_amount_mismatch" {
-			unsafePayment = true
-		}
 	}
 	if !current {
 		x.Status = "verified"
 		x.Verification = "already absent in reconciliation " + run.ID
 		return x, l.finishRepair(ctx, x)
 	}
-	if unsafePayment {
-		x.Status = "blocked"
-		x.Verification = "provider amount mismatch requires manual investigation"
-		return x, l.finishRepair(ctx, x)
+	paymentOperationID := ""
+	if x.Action == "lookup_original_operation" || x.Action == "retry_original_capture" {
+		paymentOperationID = d.ObjectID
+		if d.Kind == "pending_outbox" {
+			if err := l.db.QueryRowContext(ctx, `SELECT object_id FROM outbox WHERE id=? AND kind='capture'`, d.ObjectID).Scan(&paymentOperationID); err != nil {
+				return RepairOperation{}, err
+			}
+		}
+		for _, f := range run.Findings {
+			if f.Kind == "provider_amount_mismatch" && f.ObjectID == paymentOperationID {
+				x.Status = "blocked"
+				x.Verification = "provider amount mismatch requires manual investigation"
+				return x, l.finishRepair(ctx, x)
+			}
+		}
 	}
 	if x.PreconditionRevision != 0 {
 		var current int64
@@ -117,21 +124,11 @@ func (l *Lab) RepairDiscrepancy(ctx context.Context, discrepancyID, requestKey s
 			return RepairOperation{}, err
 		}
 	case "retry_original_capture":
-		var opID string
-		if err := l.db.QueryRowContext(ctx, `SELECT object_id FROM outbox WHERE id=? AND kind='capture'`, d.ObjectID).Scan(&opID); err != nil {
-			return RepairOperation{}, err
-		}
-		if _, err := l.DispatchCapture(ctx, opID, ""); err != nil && !errors.Is(err, ErrPaymentUnknown) {
+		if _, err := l.DispatchCapture(ctx, paymentOperationID, ""); err != nil && !errors.Is(err, ErrPaymentUnknown) {
 			return RepairOperation{}, err
 		}
 	case "lookup_original_operation":
-		opID := d.ObjectID
-		if d.Kind == "pending_outbox" {
-			if err := l.db.QueryRowContext(ctx, `SELECT object_id FROM outbox WHERE id=? AND kind='capture'`, d.ObjectID).Scan(&opID); err != nil {
-				return RepairOperation{}, err
-			}
-		}
-		found, err := l.ReconcilePayment(ctx, opID)
+		found, err := l.ReconcilePayment(ctx, paymentOperationID)
 		if err != nil {
 			return RepairOperation{}, err
 		}

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Result, Select, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useSearchParams } from 'react-router-dom'
-import { api, type ProviderOperation } from '../../api/client'
+import { api, canShowStaleRead, type ProviderOperation } from '../../api/client'
 import Money from '../../components/Money'
 
 export default function ProviderOperationList({ kind }: { kind: 'captures' | 'refunds' }) {
@@ -29,7 +29,7 @@ export default function ProviderOperationList({ kind }: { kind: 'captures' | 're
   }
 
   if (query.isPending) return <Skeleton active />
-  if (query.isError && !query.data) return <Result status="error" title="無法讀取模擬提供者資料" subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) return <Result status="error" title="無法讀取模擬提供者資料" subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
 
   return <>
     {query.isError && <Alert type="warning" showIcon className="result-card" message="更新失敗；以下是上次成功讀取的資料" description={query.error.message} />}
@@ -52,7 +52,7 @@ export default function ProviderOperationList({ kind }: { kind: 'captures' | 're
     <Space className="result-card" wrap>
       <Button disabled={back.length === 0} onClick={previousPage}>上一頁</Button>
       <Typography.Text>第 {back.length + 1} 頁</Typography.Text>
-      <Button disabled={!query.data.next_cursor} onClick={nextPage}>下一頁</Button>
+      <Button disabled={query.isError || !query.data.next_cursor} onClick={nextPage}>下一頁</Button>
       <Typography.Text type="secondary">提供者資料獨立觀測於 {new Date(query.data.observed_at).toLocaleString()}；跨頁不是全域快照。</Typography.Text>
     </Space>
   </>

@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Drawer, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, type Command, type Session } from '../../api/client'
+import { api, canShowStaleRead, type Command, type Session } from '../../api/client'
 import ExternalOperationOutcome, { failedExternalOperation } from '../../components/ExternalOperationOutcome'
 
 export default function CommandList({ session }: { session: Session }) {
@@ -13,14 +13,14 @@ export default function CommandList({ session }: { session: Session }) {
   const query = useQuery({ queryKey: ['commands', cursor], queryFn: () => api.commands(cursor), refetchInterval: 5000 })
   const [selectedID, setSelectedID] = useState<string | null>(null)
   const selectedQuery = useQuery({ queryKey: ['command', selectedID], queryFn: () => api.command(selectedID!), enabled: selectedID !== null })
-  const selected = selectedQuery.data ?? query.data?.items.find((item) => item.id === selectedID) ?? null
+  const selected = selectedQuery.isError && !canShowStaleRead(selectedQuery.error) ? null : selectedQuery.data ?? query.data?.items.find((item) => item.id === selectedID) ?? null
   const selectedUpdatedAt = selectedQuery.data ? selectedQuery.dataUpdatedAt : query.dataUpdatedAt
   const resume = useMutation({
     mutationFn: (id: string) => api.resumeCommand(session.csrf_token, id),
     onSuccess: () => { void query.refetch(); void selectedQuery.refetch() },
   })
   if (query.isPending) return <Skeleton active />
-  if (query.isError && !query.data) return <Result status="error" title="命令列表載入失敗" subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) return <Result status="error" title="命令列表載入失敗" subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   return <>
     {query.isError && <Alert type="warning" showIcon className="result-card" message="無法更新命令列表；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(query.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void query.refetch()}>重試</Button></Space>} />}
     <Card title="管理命令" extra={<Button onClick={() => void query.refetch()}>重新整理</Button>}>
@@ -35,7 +35,7 @@ export default function CommandList({ session }: { session: Session }) {
     <Space className="result-card" wrap>
       <Button disabled={page === 0} onClick={() => { setSelectedID(null); setPage(page - 1) }}>上一頁</Button>
       <Typography.Text>第 {page + 1} 頁</Typography.Text>
-      <Button disabled={!query.data.next_cursor} onClick={() => {
+      <Button disabled={query.isError || !query.data.next_cursor} onClick={() => {
         if (!cursors[page + 1]) setCursors([...cursors, query.data.next_cursor])
         setSelectedID(null)
         setPage(page + 1)

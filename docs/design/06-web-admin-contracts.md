@@ -37,7 +37,7 @@
 
 前端資料以 resource＋ID＋filters＋cursor 作 Query key，mutation 完成後失效相依查詢；金融寫入不做 optimistic success。列表搜尋 debounce 250ms，URL 保存篩選，limit 預設 25、最大 100。可見命令頁以 2 秒開始輪詢、無變化退避至 10 秒；離頁停止輪詢，回頁重新驗證。刷新失敗時保留舊資料並顯示「過期／上次更新時間」。
 
-UI state 至少覆蓋 loading、empty、loaded、stale、forbidden、not-found、error、submitting、waiting-verification。表單 double-click 防護只是 UX，真正冪等由伺服器負責。只在同一未完成意圖中保留 request key；修改 payload 或重新確認後是新意圖。
+快取舊資料僅可用於暫時性讀取故障（網路、408、429、5xx），必須標示上次成功讀取時間並停用依賴該狀態的寫入入口；401／403／404 需隱藏已快取的敏感內容並顯示對應狀態。UI state 至少覆蓋 loading、empty、loaded、stale、forbidden、not-found、error、submitting、waiting-verification。表單 double-click 防護只是 UX，真正冪等由伺服器負責。只在同一未完成意圖中保留 request key；修改 payload 或重新確認後是新意圖。
 
 `next_actions` 回傳可用 action、permission 與 blocked reason code，供 UI 顯示說明；執行時仍重新核對。頁面不得因權益 active 就把 UNKNOWN 付款隱藏。
 

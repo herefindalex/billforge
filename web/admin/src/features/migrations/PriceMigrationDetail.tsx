@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Result, Select, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, type MigrationItem } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type MigrationItem } from '../../api/client'
 
 const reasons: Record<string, string> = {
   scheduled_change: '已有下期變更排程',
@@ -31,7 +31,11 @@ export default function PriceMigrationDetail() {
   })
 
   if (migration.isPending) return <Skeleton active className="form-page" />
-  if (migration.isError || !migration.data) return <Result status="error" title="遷移批次無法載入" subTitle={migration.error?.message} extra={<Button onClick={() => void migration.refetch()}>重試</Button>} />
+  if (migration.isError && (!migration.data || !canShowStaleRead(migration.error))) {
+    const status = migration.error instanceof HttpError ? migration.error.status : 0
+    return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到遷移批次' : status === 403 ? '沒有權限查看遷移批次' : '遷移批次無法載入'} subTitle={migration.error.message} extra={<Button onClick={() => void migration.refetch()}>重試</Button>} />
+  }
+  if (!migration.data) return null
 
   const detail = migration.data
   const hasConflicts = detail.ConflictedCount !== '0'
@@ -43,6 +47,7 @@ export default function PriceMigrationDetail() {
   }
   return <div className="form-page">
     <Typography.Title level={2}>價格遷移批次</Typography.Title>
+    {migration.isError && <Alert type="warning" showIcon className="result-card" message="無法更新遷移批次；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(migration.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void migration.refetch()}>重試</Button></Space>} />}
     <Card>
       <Descriptions bordered size="small" column={1} items={[
         { key: 'id', label: '批次 ID', children: <Typography.Text copyable>{detail.ID}</Typography.Text> },
@@ -57,9 +62,9 @@ export default function PriceMigrationDetail() {
       ]} />
       <Space wrap className="result-card">
         <Button onClick={refresh}>更新狀態</Button>
-        {detail.Status === 'active' && <Button onClick={() => navigate(`/price-migrations/${encodeURIComponent(id)}/pause`)}>暫停未完成項目</Button>}
-        {detail.Status === 'paused' && <Button onClick={() => navigate(`/price-migrations/${encodeURIComponent(id)}/skip`)}>略過項目</Button>}
-        {detail.Status === 'paused' && !hasConflicts && <Button onClick={() => navigate(`/price-migrations/${encodeURIComponent(id)}/resume`)}>恢復批次</Button>}
+        {detail.Status === 'active' && <Button disabled={migration.isError} onClick={() => navigate(`/price-migrations/${encodeURIComponent(id)}/pause`)}>暫停未完成項目</Button>}
+        {detail.Status === 'paused' && <Button disabled={migration.isError} onClick={() => navigate(`/price-migrations/${encodeURIComponent(id)}/skip`)}>略過項目</Button>}
+        {detail.Status === 'paused' && !hasConflicts && <Button disabled={migration.isError} onClick={() => navigate(`/price-migrations/${encodeURIComponent(id)}/resume`)}>恢復批次</Button>}
       </Space>
     </Card>
     {hasConflicts && <Alert className="result-card" type="warning" showIcon message={`${detail.ConflictedCount} 筆訂閱與遷移預覽衝突`} description="已套用項目不會撤銷。請檢查各項原因，再明確略過衝突項目。" />}
@@ -70,7 +75,8 @@ export default function PriceMigrationDetail() {
       { value: 'conflicted', label: '衝突' },
       { value: 'skipped', label: '已略過' },
     ]} onChange={(value) => { setStatus(value); setCursors(['']); setPage(0) }} /><Button onClick={refresh}>重新整理</Button></Space>}>
-      {items.isPending ? <Skeleton active /> : items.isError ? <Result status="error" title="遷移項目無法載入" subTitle={items.error.message} extra={<Button onClick={() => void items.refetch()}>重試</Button>} /> : <>
+      {items.isPending && items.fetchStatus !== 'idle' ? <Skeleton active /> : !items.data || (items.isError && !canShowStaleRead(items.error)) ? <Result status={items.error instanceof HttpError && items.error.status === 403 ? '403' : items.error instanceof HttpError && items.error.status === 404 ? '404' : 'error'} title="遷移項目無法載入" subTitle={items.error?.message} extra={<Button onClick={() => void items.refetch()}>重試</Button>} /> : <>
+        {items.isError && <Alert type="warning" showIcon message="無法更新遷移項目；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(items.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void items.refetch()}>重試</Button></Space>} />}
         <Table<MigrationItem>
           rowKey="SubscriptionID"
           dataSource={items.data.items}
@@ -91,7 +97,7 @@ export default function PriceMigrationDetail() {
         <Space wrap className="result-card">
           <Button disabled={page === 0} onClick={() => setPage(page - 1)}>上一頁</Button>
           <Typography.Text>第 {page + 1} 頁</Typography.Text>
-          <Button disabled={!items.data.next_cursor} onClick={() => { setCursors([...cursors.slice(0, page + 1), items.data.next_cursor]); setPage(page + 1) }}>下一頁</Button>
+          <Button disabled={items.isError || !items.data.next_cursor} onClick={() => { setCursors([...cursors.slice(0, page + 1), items.data.next_cursor]); setPage(page + 1) }}>下一頁</Button>
           <Typography.Text type="secondary">觀測時間：{items.data.observed_at}</Typography.Text>
         </Space>
       </>}

@@ -374,6 +374,10 @@ export class HttpError extends Error {
   }
 }
 
+export function canShowStaleRead(error: unknown): boolean {
+  return !(error instanceof HttpError) || error.status >= 500 || error.status === 408 || error.status === 429
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const requestGeneration = sessionGeneration
   const read = (init?.method ?? 'GET').toUpperCase() === 'GET'

@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Result, Skeleton, Space, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, type Session } from '../../api/client'
+import { api, canShowStaleRead, type Session } from '../../api/client'
 import ExternalOperationOutcome from '../../components/ExternalOperationOutcome'
 import Money from '../../components/Money'
 
@@ -26,7 +26,7 @@ export default function CommandDetail({ session }: { session: Session }) {
   })
 
   if (command.isPending) return <Skeleton active />
-  if (command.isError && !command.data) return <Result status="error" title="命令狀態無法載入" subTitle={command.error.message} extra={<Button onClick={() => void command.refetch()}>重試</Button>} />
+  if (command.isError && (!command.data || !canShowStaleRead(command.error))) return <Result status="error" title="命令狀態無法載入" subTitle={command.error.message} extra={<Button onClick={() => void command.refetch()}>重試</Button>} />
 
   const item = command.data
   return <Card title="命令詳情" extra={<Button onClick={() => void command.refetch()}>更新</Button>}>

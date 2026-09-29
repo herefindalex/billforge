@@ -54,6 +54,10 @@ with db:
     const refund = page.getByRole('row', { name: /provider-refund-1/ })
     await expect(refund).toContainText('provider-capture-2')
     await expect(refund).toContainText('USD 2.00')
+    await page.route('**/admin/api/lab/provider-refunds?*', async (route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'FORBIDDEN', message: '沒有權限' } }) }))
+    await page.getByRole('button', { name: '更新資料' }).click()
+    await expect(page.getByText('無法讀取模擬提供者資料')).toBeVisible()
+    await expect(refund).toHaveCount(0)
   } finally {
     await app.stop()
   }

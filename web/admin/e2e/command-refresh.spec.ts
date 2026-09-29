@@ -62,6 +62,14 @@ test('命令列表、抽屜與詳情讀取失敗時保留上次資料並可恢�
     await drawer.getByRole('button', { name: /重\s*試/ }).click()
     await expect(drawer.getByText('無法更新命令詳情；以下是上次成功讀取的資料')).toHaveCount(0)
 
+    await page.route(`**/admin/api/commands/${command.id}`, async (route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'FORBIDDEN', message: '沒有權限' } }) }))
+    await drawer.getByRole('button', { name: /更\s*新/ }).click()
+    await expect(drawer.getByText('命令詳情載入失敗')).toBeVisible()
+    await expect(drawer.getByText('結果參照')).toHaveCount(0)
+    await page.unroute(`**/admin/api/commands/${command.id}`)
+    await drawer.getByRole('button', { name: /重\s*試/ }).click()
+    await expect(drawer.getByText('結果參照')).toBeVisible()
+
     await page.goto(`${app.baseURL}/admin/commands/${command.id}`)
     await expect(page.getByRole('main').getByText(command.id).first()).toBeVisible()
     await page.route(`**/admin/api/commands/${command.id}`, async (route) => route.fulfill(readFailure))

@@ -12,7 +12,13 @@ test('價格遷移詳情從伺服器分頁，並以全批次衝突數判斷恢�
     await expect(page.getByRole('heading', { name: '營運概覽' })).toBeVisible()
 
     const id = `migration-items-${randomUUID()}`
+    let summaryFailureStatus: number | null = null
+    let itemsFailureStatus: number | null = null
     await page.route(`**/admin/api/price-migrations/${id}`, async (route) => {
+      if (summaryFailureStatus !== null) {
+        await route.fulfill({ status: summaryFailureStatus, contentType: 'application/json', body: JSON.stringify({ error: { code: summaryFailureStatus === 403 ? 'FORBIDDEN' : 'QUERY_FAILED', message: summaryFailureStatus === 403 ? '沒有權限' : '暫時無法讀取' } }) })
+        return
+      }
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
         ID: id, Cohort: 'default', TargetPriceVersionID: 'price-v2', Status: 'paused',
         ItemCount: '25', PendingCount: '0', AppliedCount: '24', ConflictedCount: '1', SkippedCount: '0',
@@ -27,6 +33,10 @@ test('價格遷移詳情從伺服器分頁，並以全批次衝突數判斷恢�
       Status: status, ConflictReason: status === 'conflicted' ? 'revision_changed' : '',
     })
     await page.route(`**/admin/api/price-migrations/${id}/items?*`, async (route) => {
+      if (itemsFailureStatus !== null) {
+        await route.fulfill({ status: itemsFailureStatus, contentType: 'application/json', body: JSON.stringify({ error: { code: itemsFailureStatus === 403 ? 'FORBIDDEN' : 'QUERY_FAILED', message: itemsFailureStatus === 403 ? '沒有權限' : '暫時無法讀取' } }) })
+        return
+      }
       const query = new URL(route.request().url()).searchParams
       const filtered = query.get('status') === 'conflicted'
       const second = query.get('cursor') === 'page-2'
@@ -52,6 +62,45 @@ test('價格遷移詳情從伺服器分頁，並以全批次衝突數判斷恢�
     await expect(page.getByText('sub-025')).toBeVisible()
     await expect(page.getByText('sub-021')).toHaveCount(0)
     await expect(page.getByText('訂閱 revision 已變更')).toBeVisible()
+
+    summaryFailureStatus = 503
+    await page.getByRole('button', { name: '更新狀態' }).click()
+    await expect(page.getByText('無法更新遷移批次；以下是上次成功讀取的資料')).toBeVisible()
+    await expect(page.getByText('sub-025')).toBeVisible()
+    await expect(page.getByRole('button', { name: '略過項目' })).toBeDisabled()
+    summaryFailureStatus = null
+    await page.getByRole('button', { name: /重\s*試/ }).click()
+    await expect(page.getByText('無法更新遷移批次；以下是上次成功讀取的資料')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '略過項目' })).toBeEnabled()
+
+    await page.getByRole('combobox', { name: '篩選遷移項目狀態' }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText('全部狀態', { exact: true }).click()
+    await expect(page.getByText('sub-001')).toBeVisible()
+    itemsFailureStatus = 503
+    await page.getByRole('button', { name: '重新整理' }).click()
+    await expect(page.getByText('無法更新遷移項目；以下是上次成功讀取的資料')).toBeVisible()
+    await expect(page.getByText('sub-001')).toBeVisible()
+    await expect(page.getByRole('button', { name: '下一頁' })).toBeDisabled()
+    itemsFailureStatus = null
+    await page.getByRole('button', { name: /重\s*試/ }).click()
+    await expect(page.getByText('無法更新遷移項目；以下是上次成功讀取的資料')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '下一頁' })).toBeEnabled()
+
+    itemsFailureStatus = 403
+    await page.getByRole('button', { name: '重新整理' }).click()
+    await expect(page.getByText('遷移項目無法載入')).toBeVisible()
+    await expect(page.getByText('sub-001')).toHaveCount(0)
+    itemsFailureStatus = null
+    await page.getByRole('button', { name: /重\s*試/ }).click()
+    await expect(page.getByText('sub-001')).toBeVisible()
+
+    summaryFailureStatus = 403
+    await page.getByRole('button', { name: '更新狀態' }).click()
+    await expect(page.getByText('沒有權限查看遷移批次')).toBeVisible()
+    await expect(page.getByText('sub-001')).toHaveCount(0)
+    summaryFailureStatus = 404
+    await page.getByRole('button', { name: /重\s*試/ }).click()
+    await expect(page.getByText('找不到遷移批次')).toBeVisible()
   } finally {
     await app.stop()
   }

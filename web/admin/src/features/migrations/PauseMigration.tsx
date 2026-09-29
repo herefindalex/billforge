@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, App as AntApp, Button, Card, Descriptions, Skeleton, Space, Typography } from 'antd'
+import { Alert, App as AntApp, Button, Card, Descriptions, Result, Skeleton, Space, Typography } from 'antd'
 import { useParams } from 'react-router-dom'
-import { api, type Command, type Session } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type Command, type Session } from '../../api/client'
 import ReadFailureWithRecovery from '../../components/ReadFailureWithRecovery'
 import { useStoredCommandID } from '../commands/useStoredCommandID'
 import CommandReadRecovery, { isCommandNotFound } from '../commands/CommandReadRecovery'
@@ -46,6 +46,10 @@ export default function PauseMigration({ session }: { session: Session }) {
     })
   }
   if (migration.isPending) return <Skeleton active />
+  if (migration.isError && !canShowStaleRead(migration.error)) {
+    const status = migration.error instanceof HttpError ? migration.error.status : 0
+    return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到遷移批次' : status === 403 ? '沒有權限查看遷移批次' : '遷移批次無法載入'} subTitle={migration.error.message} extra={<Button onClick={() => void migration.refetch()}>重試</Button>} />
+  }
   if (migration.isError && !migration.data) return <ReadFailureWithRecovery title="遷移批次無法載入" message={migration.error.message} onRetryRead={() => { void migration.refetch() }} hasPendingCommand={pendingKey !== null} onRecoverCommand={() => { if (pendingKey) submit.mutate(pendingKey) }} recovering={submit.isPending} commandID={commandID} recoveryError={submit.isError ? submit.error.message : null} />
   return <div className="form-page">
     <Typography.Title level={2}>價格遷移批次</Typography.Title>
@@ -64,15 +68,15 @@ export default function PauseMigration({ session }: { session: Session }) {
     {submit.isError && <Alert type="error" showIcon className="result-card" message="命令結果尚未確認" description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card">
       {command.isPending && <Typography.Text>正在查詢命令狀態…</Typography.Text>}
-      {command.isError && (!command.data || isCommandNotFound(command.error)) && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); void migration.refetch() }} />}
-      {command.isError && command.data && <Alert type="warning" showIcon message="無法更新命令狀態；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(command.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void command.refetch()}>重試</Button></Space>} />}
-      {command.data && <Descriptions column={1} bordered size="small" items={[
+        {command.isError && (!command.data || !canShowStaleRead(command.error) || isCommandNotFound(command.error)) && <CommandReadRecovery error={command.error} onRetry={() => void command.refetch()} onClear={() => { setCommandID(null); void migration.refetch() }} />}
+        {command.isError && command.data && canShowStaleRead(command.error) && <Alert type="warning" showIcon message="無法更新命令狀態；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(command.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void command.refetch()}>重試</Button></Space>} />}
+        {command.data && (!command.isError || canShowStaleRead(command.error)) && <Descriptions column={1} bordered size="small" items={[
         { key: 'id', label: '命令 ID', children: <Typography.Text copyable>{command.data.id}</Typography.Text> },
         { key: 'status', label: '狀態', children: command.data.status },
         { key: 'error', label: '錯誤', children: command.data.error_code || '無' },
       ]} />}
       <Button className="result-card" href={`/admin/commands/${encodeURIComponent(commandID)}`}>開啟命令頁面</Button>
-      {command.data?.status === 'failed' && migration.data.Status === 'active' && <Button className="result-card" disabled={command.isError} onClick={() => { setCommandID(null); void migration.refetch() }}>依最新批次狀態重新操作</Button>}
+      {command.data?.status === 'failed' && (!command.isError || canShowStaleRead(command.error)) && migration.data.Status === 'active' && <Button className="result-card" disabled={command.isError} onClick={() => { setCommandID(null); void migration.refetch() }}>依最新批次狀態重新操作</Button>}
     </Card>}
   </div>
 }

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError, type InvoiceDetail as InvoiceRecord } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type InvoiceDetail as InvoiceRecord } from '../../api/client'
 import Money from '../../components/Money'
 
 function dateText(value?: string | null) {
@@ -13,20 +13,23 @@ export default function InvoiceDetail() {
   const navigate = useNavigate()
   const query = useQuery({ queryKey: ['invoice', id], queryFn: () => api.invoice(id), enabled: id !== '' })
   if (query.isPending) return <Skeleton active />
-  if (query.isError) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
     return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到帳單' : status === 403 ? '沒有權限查看帳單' : '帳單無法載入'} subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   }
+  if (!query.data) return null
   const invoice: InvoiceRecord = query.data.invoice
   const balance = invoice.Balance
   const money = (minor: string) => <Money minor={minor} currency={balance.Currency} />
+  const stale = query.isError
   return <div className="form-page">
     <Space align="center" wrap>
       <Typography.Title level={2} style={{ margin: 0 }}>帳單詳情</Typography.Title>
       <Tag>{invoice.FinalizedAt ? '已核定' : '未核定'}</Tag>
       {query.isFetching && <Tag>更新中</Tag>}
     </Space>
-    <Typography.Paragraph type="secondary">資料查詢時間：{new Date(query.data.observed_at).toLocaleString()}。金額為目前帳務快照；付款操作的狀態另行列示。</Typography.Paragraph>
+    {stale && <Alert type="warning" showIcon className="result-card" message="無法更新帳單；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(query.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void query.refetch()}>重試</Button></Space>} />}
+    <Typography.Paragraph type="secondary">資料查詢時間：{new Date(query.data.observed_at).toLocaleString()}。金額為該次帳務快照；付款操作的狀態另行列示。</Typography.Paragraph>
     <Card title="帳單與應收" className="result-card" extra={<Button onClick={() => void query.refetch()}>重新整理</Button>}>
       <Descriptions bordered size="small" column={1} items={[
         { key: 'id', label: '帳單 ID', children: <Typography.Text copyable>{invoice.ID}</Typography.Text> },
@@ -85,8 +88,8 @@ export default function InvoiceDetail() {
         { title: '釋出金額', dataIndex: 'AmountMinor', render: money },
         { title: '建立時間', dataIndex: 'CreatedAt', render: dateText },
         { title: '操作', render: (_: unknown, record: InvoiceRecord['CreditGrants'][number]) => <Space>
-          <Button type="link" onClick={() => navigate(`/credits/${encodeURIComponent(record.ID)}/apply`)}>抵扣帳單</Button>
-          <Button type="link" onClick={() => navigate(`/credits/${encodeURIComponent(record.ID)}/refunds/new`)}>預留退款</Button>
+          <Button type="link" disabled={stale} onClick={() => navigate(`/credits/${encodeURIComponent(record.ID)}/apply`)}>抵扣帳單</Button>
+          <Button type="link" disabled={stale} onClick={() => navigate(`/credits/${encodeURIComponent(record.ID)}/refunds/new`)}>預留退款</Button>
         </Space> },
       ]} />
     </Card>}
@@ -99,8 +102,8 @@ export default function InvoiceDetail() {
         { title: '狀態', dataIndex: 'Status', render: (value: string) => <Tag>{value}</Tag> },
         { title: '建立時間', dataIndex: 'CreatedAt', render: dateText },
         { title: '操作', render: (_: unknown, record: InvoiceRecord['Refunds'][number]) => <Space>
-          {record.Status === 'created' && <Button type="link" onClick={() => navigate(`/refunds/${encodeURIComponent(record.ID)}/dispatch`)}>送出</Button>}
-          {['submitted', 'unknown'].includes(record.Status) && <Button type="link" onClick={() => navigate(`/refunds/${encodeURIComponent(record.ID)}/reconcile`)}>查證</Button>}
+          {record.Status === 'created' && <Button type="link" disabled={stale} onClick={() => navigate(`/refunds/${encodeURIComponent(record.ID)}/dispatch`)}>送出</Button>}
+          {['submitted', 'unknown'].includes(record.Status) && <Button type="link" disabled={stale} onClick={() => navigate(`/refunds/${encodeURIComponent(record.ID)}/reconcile`)}>查證</Button>}
         </Space> },
       ]} />
     </Card>}
@@ -111,15 +114,15 @@ export default function InvoiceDetail() {
         { title: '金額', dataIndex: 'AmountMinor', render: (minor: string, record) => <Money minor={minor} currency={record.Currency} /> },
         { title: '狀態', dataIndex: 'Status', render: (status: string) => <Tag>{status}</Tag> },
         { title: '操作', render: (_, record) => <Space>
-          {record.Status === 'created' && <Button type="link" onClick={() => navigate(`/payments/${encodeURIComponent(record.ID)}/dispatch`)}>送出</Button>}
-          {['submitted', 'unknown'].includes(record.Status) && <Button type="link" onClick={() => navigate(`/payments/${encodeURIComponent(record.ID)}/reconcile`)}>查證</Button>}
-          {record.Status === 'definitively_failed' && <Button type="link" onClick={() => navigate(`/payments/${encodeURIComponent(record.ID)}/retry`)}>重試</Button>}
+          {record.Status === 'created' && <Button type="link" disabled={stale} onClick={() => navigate(`/payments/${encodeURIComponent(record.ID)}/dispatch`)}>送出</Button>}
+          {['submitted', 'unknown'].includes(record.Status) && <Button type="link" disabled={stale} onClick={() => navigate(`/payments/${encodeURIComponent(record.ID)}/reconcile`)}>查證</Button>}
+          {record.Status === 'definitively_failed' && <Button type="link" disabled={stale} onClick={() => navigate(`/payments/${encodeURIComponent(record.ID)}/retry`)}>重試</Button>}
         </Space> },
       ]} />
     </Card>
     <Space wrap className="result-card">
-      <Button disabled={!invoice.FinalizedAt} onClick={() => navigate(`/invoices/${encodeURIComponent(id)}/payments/new`)}>建立付款操作</Button>
-      <Button disabled={!invoice.FinalizedAt} onClick={() => navigate(`/invoices/${encodeURIComponent(id)}/reductions/new`)}>新增減額更正</Button>
+      <Button disabled={stale || !invoice.FinalizedAt} onClick={() => navigate(`/invoices/${encodeURIComponent(id)}/payments/new`)}>建立付款操作</Button>
+      <Button disabled={stale || !invoice.FinalizedAt} onClick={() => navigate(`/invoices/${encodeURIComponent(id)}/reductions/new`)}>新增減額更正</Button>
     </Space>
   </div>
 }

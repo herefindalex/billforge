@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api, type JobSummary } from '../../api/client'
+import { api, canShowStaleRead, type JobSummary } from '../../api/client'
 
 export default function JobList() {
   const navigate = useNavigate()
@@ -28,7 +28,7 @@ export default function JobList() {
   }
 
   if (query.isPending) return <Skeleton active />
-  if (query.isError && !query.data) return <Result status="error" title="批次工作載入失敗" subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) return <Result status="error" title="批次工作載入失敗" subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
 
   return <>
     {query.isError && <Alert type="warning" showIcon className="result-card" message="無法更新批次工作；以下是上次成功讀取的資料" description={query.error.message} />}
@@ -46,7 +46,7 @@ export default function JobList() {
     <Space className="result-card" wrap>
       <Button disabled={back.length === 0} onClick={previousPage}>上一頁</Button>
       <Typography.Text>第 {back.length + 1} 頁</Typography.Text>
-      <Button disabled={!query.data.next_cursor} onClick={nextPage}>下一頁</Button>
+      <Button disabled={query.isError || !query.data.next_cursor} onClick={nextPage}>下一頁</Button>
       <Typography.Text type="secondary">觀測時間：{new Date(query.data.observed_at).toLocaleString()}；新增工作不會移動已讀頁的游標。</Typography.Text>
     </Space>
   </>

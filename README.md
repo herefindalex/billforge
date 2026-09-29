@@ -65,7 +65,9 @@ The contracts list opens a contract version detail page with its published terms
 
 The **Batch jobs** page lists recent jobs with item counts and links to their detailed results. Its cursor pagination keeps earlier pages stable when new jobs are created.
 
-**Price migration** detail shows server-calculated totals for each item status. Its item table reads at most 20 records per page, supports status filtering, and displays exact minor-unit amounts. After applying or skipping items, or resuming a batch, refresh the detail to see current counts and restart pagination.
+**Price migration** detail shows server-calculated totals for each item status. Its item table reads at most 20 records per page, supports status filtering, and displays exact minor-unit amounts. If a refresh fails, the last successful data stays visible with a warning, and actions based on stale batch status are disabled. After applying or skipping items, or resuming a batch, refresh the detail to see current counts and restart pagination.
+
+Invoice, subscription, credit, payment, refund, price, and contract details follow the same read-failure rule: a temporary failure labels cached data and disables actions based on it; an access denial hides cached data.
 
 With `lab.control` permission, **Lab controls** shows fake-provider status and paginated capture and refund records. These are observations of a separate local database, and monetary amounts remain exact minor-unit strings in the API.
 

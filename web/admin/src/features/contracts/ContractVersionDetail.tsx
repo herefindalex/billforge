@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Result, Skeleton, Space, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError } from '../../api/client'
+import { api, canShowStaleRead, HttpError } from '../../api/client'
 import Money from '../../components/Money'
 
 export default function ContractVersionDetail() {
@@ -10,7 +10,7 @@ export default function ContractVersionDetail() {
   const query = useQuery({ queryKey: ['contract-version', id], queryFn: () => api.contract(id), enabled: id !== '' })
 
   if (query.isPending && !query.data) return <Skeleton active />
-  if (query.isError && !query.data) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
     return <Result
       status={status === 404 ? '404' : status === 403 ? '403' : 'error'}
@@ -76,7 +76,7 @@ export default function ContractVersionDetail() {
       {contract.SubscriptionsTruncated && <Alert type="warning" showIcon message="訂閱超過 20 筆；此頁僅顯示前 20 筆，可到完整列表分頁查看" />}
     </Card>
     <Space className="result-card" wrap>
-      <Button type="primary" onClick={() => navigate(quotePath)}>建立合約報價</Button>
+      <Button type="primary" disabled={query.isError} onClick={() => navigate(quotePath)}>建立合約報價</Button>
       <Button onClick={() => navigate('/contracts')}>返回合約列表</Button>
     </Space>
   </div>

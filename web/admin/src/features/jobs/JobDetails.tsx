@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Space, Table, Tag, Typography } from 'antd'
 import { useParams } from 'react-router-dom'
-import { api, type JobItem } from '../../api/client'
+import { api, canShowStaleRead, type JobItem } from '../../api/client'
 
 function countStatuses(items: JobItem[]) {
   const counts = { succeeded: 0, failed: 0, conflicted: 0, waiting_verification: 0, skipped: 0, active: 0 }
@@ -19,7 +19,7 @@ function countStatuses(items: JobItem[]) {
 export default function JobDetails() {
  const { id = '' } = useParams()
  const job = useQuery({ queryKey: ['job', id], queryFn: () => api.job(id), enabled: !!id, refetchInterval: (query) => query.state.data?.status === 'running' ? 1500 : false })
-  if (job.isError && !job.data) return <Alert type="error" showIcon message="無法載入工作狀態" description={<Button onClick={() => void job.refetch()}>重試</Button>} />
+  if (job.isError && (!job.data || !canShowStaleRead(job.error))) return <Alert type="error" showIcon message="無法載入工作狀態" description={<Button onClick={() => void job.refetch()}>重試</Button>} />
   const items = job.data?.items ?? []
   const counts = countStatuses(items)
   const completed = counts.succeeded + counts.failed + counts.conflicted + counts.skipped

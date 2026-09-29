@@ -44,12 +44,13 @@ React 19＋Ant Design 管理介面已接到本機 Go server。C01–C49 各有�
 
 如果 UI 顯示命令等待，先到命令詳情查看原 id 和狀態，再使用同一命令的恢復入口；不要換 idempotency key 重建義務。付款或退款出現不確定回應時，以 fake provider 的原操作證據查證。批次工作按 job ID 查看每項結果，成功項不會重新套用。
 
-## 已執行驗證（截至 2026-09-27）
+## 已執行驗證（截至 2026-09-28）
 
 可重跑的 browser 驗收：`pnpm --dir web/admin test:e2e`。測試會先建置 UI，再於暫存目錄建置與啟動嵌入式 Go server、建立隔離的 commerce/provider SQLite，完成後關閉服務並清理測試資料。需要本機 Chrome／Chromium；若未安裝 Playwright 預設瀏覽器，可設 `BILLFORGE_CHROME_BIN` 指向可執行檔。
 
 | 證據 | 結果 | 邊界 |
 | --- | --- | --- |
+| `playwright test` 定向執行價格遷移、帳單、訂閱、Credit、付款與退款詳情的 6 個讀取故障案例 | 6／6 通過；逐頁驗 503 保留並標示舊資料、停用寫入入口、重試恢復，以及 403 隱藏快取財務內容 | 瀏覽器網路回應受控；各路徑的真實 SQLite 查詢錯誤分類另由 Go 測試驗證 |
 | `pnpm --dir web/admin exec playwright test --reporter=dot --output=/tmp/billforge-web-admin-suite-20260928` | 2026-09-28 全套 125 個瀏覽器案例通過；最後前端改動重新建置後，價格遷移詳情與暫停頁 2 個目標案例也再次通過 | 本機 fake provider 與隔離 SQLite；不代表實際支付供應商驗收 |
 | `go test ./api/admin -run TestPriceMigrationItemsAreBoundedAndScoped -count=1`、`playwright test e2e/price-migration-items.spec.ts e2e/pause-migration-refresh.spec.ts` | 真實 SQLite／HTTP 驗 123 筆批次的 50／50／23 分頁、狀態篩選與變更、游標綁定批次與篩選、精確金額、404／400／500；瀏覽器驗 20 筆分頁、篩選與全批次衝突數，且既有暫停頁仍可恢復讀取 | 狀態改變後需從第一頁重新查詢；未宣稱跨請求快照一致 |
 | `go test ./...` | 全套 Go 測試通過；包含 session、CSRF、C01–C49 capability 矩陣、schema v1→v8、命令／收據、lease fencing、批次恢復、fake provider 故障等切片 | 不等於 C01–C49 每種錯誤與瀏覽器情境都已覆蓋 |
@@ -118,7 +119,11 @@ React 19＋Ant Design 管理介面已接到本機 Go server。C01–C49 各有�
 | A29 | 本機通過 | Playwright 以新資料庫建置並啟動嵌入式 binary，驗登入、概覽、登出與 58 個路由；付款等待期間重啟同一 binary／SQLite，重新登入後找回原命令並查證。另一個案例先由 CLI binary 建立既有帳單與 provider capture，確認其沒有 admin schema，再啟動 admin binary 升級至 v6；登入後仍可檢視原帳單，金額與 provider capture 不變。純 API binary 已手動驗證；README 提供建置與登入指令。 |
 | A30 | 部分 | [49 個動作證據盤點](web-admin-action-audit.md)列出實際共用 endpoint、逐項 UI 路徑、能力、預覽型態及交易測試入口；命令與預覽的 HTTP admission guard、命令未知欄位拒絕與零寫入已逐項驗證，Playwright 已驗 58 個路由。C12 另有完整瀏覽器抵扣及 SQLite 收據證據。49 項動作現均在盤點表列有瀏覽器測試檔案引用；仍需逐項核對情境是否真正執行該動作，以及每動作的收據／恢復、其餘輸入與衝突矩陣，A30 維持未結案。 C15 新增真實雙分頁預覽失效與重確認案例，直接核對兩筆成功收據、單筆失敗原命令及 grant 預算。  C42 的瀏覽器案例現直接執行切寫並驗回應遺失後原鍵恢復，核對唯一命令、收據與切換事件。  C43 已補真實停止與後續 C05 阻擋證據，並區分帳戶已停止與預覽來源變動的錯誤。 C07／C08／C09 已增付款建立與派送交錯的跨實例 Go／SQLite 證據；這不取代其他動作缺少的完整矩陣。 |
 
-### A28 讀取故障分類補充（2026-09-27）
+### A28 讀取故障分類補充（更新至 2026-09-28）
+
+價格遷移、帳單、訂閱、Credit、付款與退款詳情的瀏覽器回歸另驗暫時性更新失敗：保留並標示上次成功讀取的資料，停用依舊狀態發起的寫入入口；價格遷移的逐項查詢失敗時也停用下一頁游標。重試成功後操作恢復。若重新讀取回 403，舊財務內容立即隱藏，改顯示權限錯誤頁。新價格遷移項目端點的真實 SQLite／HTTP 測試另驗不存在回 404、錯誤查詢回 400、資料庫故障回 500，而非空列表。
+
+快取讀取的權限邊界也延伸到價格與合約版本、命令列表與抽屜、命令詳情、批次工作及 fake provider 紀錄；403／404 不再沿用舊內容。合約報價入口與命令、工作、provider 列表的下一頁游標在暫時性讀取錯誤時停用。定向瀏覽器案例驗價格與合約詳情的 503／403、命令抽屜權限收回後不顯示結果參照、fake provider 退款權限收回後不顯示舊紀錄，以及暫停遷移頁的 403 隱藏舊狀態。
 
 `TestFinancialReadsReportDatabaseFailureInsteadOfEmptyOrMissingData` 現涵蓋全部 19 種通用資源列表，以及客戶、訂閱、帳單、用量帳期、Credit、對帳、遷移、命令、預覽與批次工作等詳情，共 44 條關庫讀取路徑。每條均須回 500 `QUERY_FAILED`，不能把資料庫故障當成空列表或資料不存在。`TestPreviewAndJobReadsDistinguishMissingRecordsFromDatabaseFailures` 另驗資料庫正常時不存在的預覽與工作回 404 `NOT_FOUND`。實驗時鐘讀取使用已載入的記憶體狀態，因此不納入關庫矩陣。 `TestAdminCreateQuoteAtomicReceiptAndReplay` 另核對成功命令的稽核事件可連結 actor、冪等請求鍵、命令 ID 與結果 quote ID。 真實瀏覽器登入後執行 C01，從 SQLite 稽核事件確認 actor／結果引用存在，管理密碼、內部 token、CSRF 與 session cookie 均未寫入稽核 JSON。這只結案讀取故障分類切片；A28 的寫入中斷、稽核欄位及各類外部暫不可查情境仍維持部分完成。
 

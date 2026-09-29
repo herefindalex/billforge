@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Result, Skeleton, Space, Table, Tag, Timeline, Typography } from 'antd'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError, type SubscriptionPeriod } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type SubscriptionPeriod } from '../../api/client'
 import Money from '../../components/Money'
 
 function dateText(value?: string) {
@@ -103,10 +103,11 @@ export default function SubscriptionDetail() {
   const navigate = useNavigate()
   const query = useQuery({ queryKey: ['subscription', id], queryFn: () => api.subscription(id), enabled: id !== '' })
   if (query.isPending) return <Skeleton active />
-  if (query.isError) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
     return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到訂閱' : status === 403 ? '沒有權限查看訂閱' : '訂閱無法載入'} subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   }
+  if (!query.data) return null
   const subscription = query.data
   const baseline = (BigInt(subscription.ActualFixedMinor) + BigInt(subscription.ActualSeatMinor) * BigInt(subscription.SeatQuantity)).toString()
   return <div className="form-page">
@@ -114,7 +115,9 @@ export default function SubscriptionDetail() {
       <Typography.Title level={2} style={{ margin: 0 }}>訂閱詳情</Typography.Title>
       <Tag>{subscription.Status}</Tag>
       {query.isFetching && <Tag>更新中</Tag>}
+      <Button onClick={() => void query.refetch()} loading={query.isFetching}>更新訂閱</Button>
     </Space>
+    {query.isError && <Alert type="warning" showIcon className="result-card" message="無法更新訂閱；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(query.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void query.refetch()}>重試</Button></Space>} />}
     <Typography.Paragraph type="secondary">資料查詢時間：{new Date(query.dataUpdatedAt).toLocaleString()}。金額為固定費與席次費基準額，未包含用量或更正。</Typography.Paragraph>
     {subscription.HoldReason && <Alert type="warning" showIcon className="form-alert" message="續約需要處理" description={<Space direction="vertical"><span>{holdReasonText(subscription.HoldReason)}</span><Typography.Text code>{subscription.HoldReason}</Typography.Text></Space>} />}
     <Card title="目前狀態" className="result-card">
@@ -152,9 +155,9 @@ export default function SubscriptionDetail() {
     </Card>
     <SubscriptionHistory id={id} />
     {subscription.Status === 'active' && <Space wrap className="result-card">
-      <Button onClick={() => navigate(`/subscriptions/${encodeURIComponent(id)}/schedule-plan`)}>排程下期變更</Button>
-      <Button onClick={() => navigate(`/subscriptions/${encodeURIComponent(id)}/upgrade`)}>立即升級</Button>
-      <Button onClick={() => navigate(`/subscriptions/${encodeURIComponent(id)}/cancel`)}>{subscription.ScheduledCancel ? '恢復取消排程' : '排程取消'}</Button>
+      <Button disabled={query.isError} onClick={() => navigate(`/subscriptions/${encodeURIComponent(id)}/schedule-plan`)}>排程下期變更</Button>
+      <Button disabled={query.isError} onClick={() => navigate(`/subscriptions/${encodeURIComponent(id)}/upgrade`)}>立即升級</Button>
+      <Button disabled={query.isError} onClick={() => navigate(`/subscriptions/${encodeURIComponent(id)}/cancel`)}>{subscription.ScheduledCancel ? '恢復取消排程' : '排程取消'}</Button>
     </Space>}
   </div>
 }

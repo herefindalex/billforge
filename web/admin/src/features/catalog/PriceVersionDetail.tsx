@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Result, Skeleton, Space, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError } from '../../api/client'
+import { api, canShowStaleRead, HttpError } from '../../api/client'
 import Money from '../../components/Money'
 
 export default function PriceVersionDetail() {
@@ -10,7 +10,7 @@ export default function PriceVersionDetail() {
   const query = useQuery({ queryKey: ['price-version', id], queryFn: () => api.price(id), enabled: id !== '' })
 
   if (query.isPending && !query.data) return <Skeleton active />
-  if (query.isError && !query.data) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
     return <Result
       status={status === 404 ? '404' : status === 403 ? '403' : 'error'}

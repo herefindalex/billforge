@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError, type UsageRating } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type UsageRating } from '../../api/client'
 import Money from '../../components/Money'
 
 const statusLabels = {
@@ -36,10 +36,11 @@ export default function UsagePeriodDetail() {
  })
 
  if (detail.isPending) return <Skeleton active />
- if (!detail.data) {
+ if (detail.isError && (!detail.data || !canShowStaleRead(detail.error))) {
   const status = detail.error instanceof HttpError ? detail.error.status : 0
-  return <Result status={status === 404 ? '404' : 'error'} title={status === 404 ? '找不到用量帳期' : '用量帳期載入失敗'} subTitle={detail.error?.message} extra={<Button onClick={() => void detail.refetch()}>重試</Button>} />
+  return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到用量帳期' : status === 403 ? '沒有權限查看用量帳期' : '用量帳期載入失敗'} subTitle={detail.error.message} extra={<Button onClick={() => void detail.refetch()}>重試</Button>} />
  }
+ if (!detail.data) return null
 
  const period = detail.data.period
  const current = period.Estimate ?? period.LatestRating
@@ -66,8 +67,8 @@ export default function UsagePeriodDetail() {
    <Button onClick={() => { void detail.refetch(); void history.refetch() }}>重新整理</Button>
    <Button onClick={() => navigate(`/data/usage-events?subscription_id=${encodeURIComponent(id)}&period_index=${encodeURIComponent(index)}`)}>查看用量事件</Button>
    {period.Status === 'estimated'
-    ? <Button onClick={() => navigate(`/usage-periods/${encodeURIComponent(id)}/close`, { state: { period_index: index } })}>關閉用量帳期</Button>
-    : <Button onClick={() => navigate(`/usage-periods/${encodeURIComponent(id)}/rerate`, { state: { period_index: index } })}>重算用量</Button>}
+    ? <Button disabled={detail.isError} onClick={() => navigate(`/usage-periods/${encodeURIComponent(id)}/close`, { state: { period_index: index } })}>關閉用量帳期</Button>
+    : <Button disabled={detail.isError} onClick={() => navigate(`/usage-periods/${encodeURIComponent(id)}/rerate`, { state: { period_index: index } })}>重算用量</Button>}
   </Space>
 
   <Card title="帳期狀態" className="result-card">
@@ -107,7 +108,7 @@ export default function UsagePeriodDetail() {
   </Card>}
 
   <Card title="計價修訂歷史" className="result-card" extra={<Button onClick={() => void history.refetch()}>重新整理</Button>}>
-   {history.isPending ? <Skeleton active /> : !history.data ? <Alert type="error" showIcon message="修訂歷史載入失敗" description={<Button onClick={() => void history.refetch()}>重試</Button>} /> : <>
+   {history.isPending ? <Skeleton active /> : history.isError && !canShowStaleRead(history.error) ? <Alert type="error" showIcon message={history.error instanceof HttpError && history.error.status === 403 ? '沒有權限查看計價修訂歷史' : '修訂歷史無法載入'} description={<Button onClick={() => void history.refetch()}>重試</Button>} /> : !history.data ? <Alert type="error" showIcon message="修訂歷史載入失敗" description={<Button onClick={() => void history.refetch()}>重試</Button>} /> : <>
     {history.isError && <Alert type="warning" showIcon message="修訂歷史更新失敗，顯示上次讀取結果" description={history.error.message} className="result-card" />}
     <Table<UsageRating> rowKey="ID" dataSource={history.data.items} columns={ratingColumns} pagination={false} scroll={{ x: 'max-content' }} locale={{ emptyText: <Empty description="尚無已保存計價修訂" /> }} expandable={{ expandedRowRender: (rating) => <Descriptions bordered size="small" column={1} items={[
      { key: 'id', label: '計價 ID', children: <Typography.Text copyable>{rating.ID}</Typography.Text> },
@@ -120,7 +121,7 @@ export default function UsagePeriodDetail() {
     <Space wrap className="result-card">
      <Button disabled={page === 0} onClick={() => setPage(page - 1)}>上一頁</Button>
      <Typography.Text>第 {page + 1} 頁</Typography.Text>
-     <Button disabled={!history.data.next_cursor} onClick={() => { setCursors([...cursors.slice(0, page + 1), history.data.next_cursor]); setPage(page + 1) }}>下一頁</Button>
+     <Button disabled={history.isError || !history.data.next_cursor} onClick={() => { setCursors([...cursors.slice(0, page + 1), history.data.next_cursor]); setPage(page + 1) }}>下一頁</Button>
     </Space>
    </>}
   </Card>

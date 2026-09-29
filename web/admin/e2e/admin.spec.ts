@@ -4047,10 +4047,20 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await expect(page.getByText('修訂歷史更新失敗，顯示上次讀取結果')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByRole('main').getByText('估算中', { exact: true })).toBeVisible()
     await expect(page.getByRole('main').getByText('20003', { exact: true }).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: '關閉用量帳期' })).toBeDisabled()
     await page.unroute('**/admin/api/usage-periods/**')
     await page.getByRole('main').getByRole('button', { name: '重新整理' }).first().click()
     await expect(page.getByText('帳期更新失敗，顯示上次讀取結果')).toHaveCount(0)
     await expect(page.getByText('修訂歷史更新失敗，顯示上次讀取結果')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '關閉用量帳期' })).toBeEnabled()
+    await page.route('**/admin/api/usage-periods/**', async (route) => {
+      await route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":{"code":"FORBIDDEN","message":"simulated access denial"}}' })
+    })
+    await page.getByRole('main').getByRole('button', { name: '重新整理' }).first().click()
+    await expect(page.getByText('沒有權限查看用量帳期')).toBeVisible()
+    await expect(page.getByRole('main').getByText('20003', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '關閉用量帳期' })).toHaveCount(0)
+    await page.unroute('**/admin/api/usage-periods/**')
 
     let clockChanges = 0
     async function setClock(value: string, mode = 'fixed') {
@@ -4081,6 +4091,15 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await expect(page.getByRole('main').getByText('已關帳', { exact: true })).toBeVisible()
     await expect(page.getByRole('main').getByText('計價修訂歷史')).toBeVisible()
     await expect(page.locator('.ant-table-tbody .ant-table-row')).toHaveCount(1)
+    const ratingsRoute = (url: URL) => url.pathname === `/admin/api/usage-periods/${subscriptionID}/0/ratings`
+    await page.route(ratingsRoute, async (route) => {
+      await route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":{"code":"FORBIDDEN","message":"simulated history denial"}}' })
+    })
+    await page.getByRole('main').getByRole('button', { name: '重新整理' }).last().click()
+    await expect(page.getByText('沒有權限查看計價修訂歷史')).toBeVisible()
+    await expect(page.locator('.ant-table-tbody .ant-table-row')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '重算用量' })).toBeEnabled()
+    await page.unroute(ratingsRoute)
 
     await setClock(at(periodEnd + 24n * 60n * 60n * 1_000_000_000n))
     const lateID = `late-${randomUUID()}`

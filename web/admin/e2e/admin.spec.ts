@@ -4394,6 +4394,47 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(scalar('SELECT status FROM payment_operations WHERE id=?', operationID)).toBe('succeeded')
   })
 
+  test('late provider amount mismatch blocks the waiting C34 repair in the browser', async ({ page }) => {
+    await signIn(page)
+    const { operationID } = await createAcceptedSubscription(page, `repair-late-mismatch-${randomUUID()}`, 'basic')
+    const markSubmitted = 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute("UPDATE payment_operations SET status=\'submitted\' WHERE id=? AND status=\'created\'",(sys.argv[2],)); db.commit()'
+    execFileSync('python3', ['-c', markSubmitted, app.commercePath, operationID])
+    const providerKey = scalar('SELECT provider_key FROM payment_operations WHERE id=?', operationID)
+    const expectedMinor = BigInt(scalar('SELECT amount_minor FROM payment_operations WHERE id=?', operationID))
+    const providerMinor = (expectedMinor + 1n).toString()
+    const currency = scalar('SELECT currency FROM payment_operations WHERE id=?', operationID)
+
+    await page.goto(`${app.baseURL}/admin/reconciliation-runs/new`)
+    await page.getByLabel('核對截止時間（UTC）').fill(new Date().toISOString())
+    await page.getByRole('button', { name: '確認執行對帳' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認執行對帳' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const discrepancyID = scalar('SELECT id FROM discrepancies WHERE object_id=? AND kind="payment_unknown"', operationID)
+    await page.goto(`${app.baseURL}/admin/discrepancies/${encodeURIComponent(discrepancyID)}`)
+    await page.getByRole('button', { name: '規劃修復' }).click()
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await expect(page.getByText('操作預覽', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '確認修復' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認修復' }).click()
+    await expect(page.getByRole('main').getByText('waiting_verification', { exact: true }).first()).toBeVisible()
+    const commandID = scalar('SELECT id FROM admin_commands WHERE action_id="C34" AND target_id=?', discrepancyID)
+    const repairID = scalar('SELECT id FROM repair_operations WHERE discrepancy_id=?', discrepancyID)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(0)
+
+    const recordCapture = 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute("INSERT INTO captures(provider_key,amount_minor,currency,status) VALUES(?,?,?,\'succeeded\')",(sys.argv[2],sys.argv[3],sys.argv[4])); db.commit()'
+    execFileSync('python3', ['-c', recordCapture, app.providerPath, providerKey, providerMinor, currency])
+    await page.getByRole('button', { name: '重新查證' }).click()
+    await expect(page.getByText('修復未執行，需檢查最新對帳證據')).toBeVisible()
+    await expect(page.getByRole('alert').getByText('provider amount mismatch requires manual investigation')).toBeVisible()
+    expect(scalar('SELECT status FROM repair_operations WHERE id=?', repairID)).toBe('blocked')
+    expect(count('SELECT COUNT(*) FROM repair_operations WHERE discrepancy_id=?', discrepancyID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_commands WHERE action_id="C34" AND target_id=?', discrepancyID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+    expect(scalar('SELECT status FROM payment_operations WHERE id=?', operationID)).toBe('submitted')
+    expect(count('SELECT COUNT(*) FROM allocations WHERE operation_id=?', operationID)).toBe(0)
+    expect(scalar('SELECT amount_minor FROM captures WHERE provider_key=?', providerKey, app.providerPath)).toBe(providerMinor)
+  })
+
   test('changed source revision blocks repair and shows the blocked result', async ({ page }) => {
     await signIn(page)
     const { subscriptionID, operationID } = await createPaidSubscription(page, `blocked-repair-${randomUUID()}`, 'basic')

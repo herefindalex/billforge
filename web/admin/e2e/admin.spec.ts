@@ -3828,6 +3828,34 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
     expect(count('SELECT COUNT(*) FROM price_versions WHERE id=?', priceID)).toBe(1)
     expect(count('SELECT COUNT(*) FROM payment_operations')).toBe(paymentsBefore)
+
+    const previewID = scalar('SELECT preview_id FROM admin_commands WHERE id=?', commandID)
+    const requestKey = scalar('SELECT idempotency_key FROM admin_commands WHERE id=?', commandID)
+    const payload = JSON.parse(scalar('SELECT payload_json FROM admin_commands WHERE id=?', commandID)) as Record<string, string>
+    execFileSync('python3', ['-c', `
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute("UPDATE admin_previews SET expires_at='2000-01-01T00:00:00Z' WHERE id=?", (sys.argv[2],))
+db.commit()
+`, app.commercePath, previewID])
+    const sessionResponse = await page.request.get(`${app.baseURL}/admin/api/session`)
+    const session = await sessionResponse.json() as { csrf_token: string }
+    const submit = (key: string, commandPayload: Record<string, string>) => page.request.post(`${app.baseURL}/admin/api/commands`, {
+      headers: { Origin: app.baseURL, 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': key },
+      data: { action_id: 'C18', target_id: '', preview_id: previewID, payload: commandPayload },
+    })
+    const replay = await submit(requestKey, payload)
+    expect(replay.status()).toBe(200)
+    expect((await replay.json()).id).toBe(commandID)
+    const changedPayload = await submit(requestKey, { ...payload, fixed_minor: '6001' })
+    expect(changedPayload.status()).toBe(409)
+    expect((await changedPayload.json()).error.code).toBe('IDEMPOTENCY_CONFLICT')
+    const expiredPreview = await submit(randomUUID(), payload)
+    expect(expiredPreview.status()).toBe(409)
+    expect((await expiredPreview.json()).error.code).toBe('PREVIEW_STALE')
+    expect(commandCount()).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM price_versions WHERE id=?', priceID)).toBe(1)
   })
 
   test('catalog publishes immutable price and meter versions before cohort selection', async ({ page }) => {

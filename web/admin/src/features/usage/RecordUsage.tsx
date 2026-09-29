@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Space, Typography } from 'antd'
 import { api, HttpError, type Command, type Session } from '../../api/client'
@@ -52,6 +52,13 @@ export default function RecordUsage({ session }: { session: Session }) {
       }
     },
   })
+  useEffect(() => {
+    if (!(submit.error instanceof HttpError) || (submit.error.status !== 400 && submit.error.status !== 422) || pending !== null) return
+    const warning = document.getElementById('usage-input-rejection')
+    if (!warning) return
+    const frame = requestAnimationFrame(() => { if (warning.isConnected) warning.focus() })
+    return () => cancelAnimationFrame(frame)
+  }, [submit.error, pending])
   const confirm = (values: UsageInput) => {
     if (pending || commandID) return
     const payload: UsageInput = {
@@ -87,7 +94,7 @@ export default function RecordUsage({ session }: { session: Session }) {
         <Form.Item label="數量" name="quantity" rules={[{ required: true, message: '請輸入數量' }, { pattern: /^[1-9]\d*$/, message: '請輸入正整數' }, { validator: async (_: unknown, value: string | undefined) => {
           if (value && !isNonNegativeInt64String(value.trim())) throw new Error('數量不可超過 int64 上限')
         } }]}><Input inputMode="numeric" /></Form.Item>
-        {submit.isError && <Alert type="error" showIcon className="form-alert" message={submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '輸入未被接受，請修改後重試' : '命令結果尚未確認'} description={submit.error.message} />}
+        {submit.isError && <div id="usage-input-rejection" tabIndex={-1} aria-label="用量輸入未被接受" className="form-alert"><Alert type="error" showIcon message={submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '輸入未被接受，請修改後重試' : '命令結果尚未確認'} description={submit.error.message} /></div>}
         <Button type="primary" htmlType="submit" loading={submit.isPending} disabled={pending !== null || commandID !== null}>檢查並記錄</Button>
       </Form>
     </Card>

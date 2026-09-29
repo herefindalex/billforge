@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Checkbox, Descriptions, Form, Input, Select, Space, Typography } from 'antd'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -57,6 +57,13 @@ export default function CreateQuote({ session }: { session: Session }) {
       }
     },
   })
+  useEffect(() => {
+    if (!(submit.error instanceof HttpError) || (submit.error.status !== 400 && submit.error.status !== 422) || pending !== null) return
+    const warning = document.getElementById('quote-input-rejection')
+    if (!warning) return
+    const frame = requestAnimationFrame(() => { if (warning.isConnected) warning.focus() })
+    return () => cancelAnimationFrame(frame)
+  }, [submit.error, pending])
   const send = (values: QuoteInput) => {
     if (pending || commandID) return
     const payload: QuoteInput = {
@@ -109,7 +116,7 @@ export default function CreateQuote({ session }: { session: Session }) {
             if (value && !isNonNegativeInt64String(value.trim())) throw new Error('Revision 不可超過 int64 上限')
           } }]}><Input inputMode="numeric" /></Form.Item>
         </>}
-        {submit.isError && <Alert type="error" showIcon className="form-alert" message={submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '輸入未被接受，請修改後重試' : '操作結果尚未確認'} description={submit.error.message} />}
+        {submit.isError && <div id="quote-input-rejection" tabIndex={-1} aria-label="報價輸入未被接受" className="form-alert"><Alert type="error" showIcon message={submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '輸入未被接受，請修改後重試' : '操作結果尚未確認'} description={submit.error.message} /></div>}
         <Button type="primary" htmlType="submit" loading={submit.isPending} disabled={pending !== null || commandID !== null}>建立報價</Button>
       </Form>
     </Card>

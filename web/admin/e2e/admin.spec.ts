@@ -587,6 +587,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await page.getByRole('button', { name: '建立報價' }).click()
     expect((await quoteRejected).status()).toBe(422)
     await expect(page.getByText('輸入未被接受，請修改後重試')).toBeVisible()
+    await expect(page.locator('#quote-input-rejection')).toBeFocused()
     await expect(customer).toBeEnabled()
     expect(count('SELECT COUNT(*) FROM admin_commands WHERE action_id=?', 'C01')).toBe(quotesBefore)
 
@@ -604,6 +605,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await page.getByRole('dialog').getByRole('button', { name: '確認記錄' }).click()
     expect((await usageRejected).status()).toBe(422)
     await expect(page.getByText('輸入未被接受，請修改後重試')).toBeVisible()
+    await expect(page.locator('#usage-input-rejection')).toBeFocused()
     await expect(source).toBeEnabled()
     expect(count('SELECT COUNT(*) FROM admin_commands WHERE action_id=?', 'C26')).toBe(usageBefore)
   })

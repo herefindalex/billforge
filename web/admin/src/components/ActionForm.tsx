@@ -184,7 +184,7 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
  ])).filter((key) => JSON.stringify(stalePreview.impact[key]) !== JSON.stringify(preview.impact[key])) : []
   const sourceChanges = stalePreview && preview ? Array.from(new Set([
   ...Object.keys(stalePreview.source_versions), ...Object.keys(preview.source_versions),
-  ])).filter((key) => stalePreview.source_versions[key] !== preview.source_versions[key]) : []
+  ])).filter((key) => JSON.stringify(stalePreview.source_versions[key]) !== JSON.stringify(preview.source_versions[key])) : []
   const visibleCommand = command.isError && !canShowStaleRead(command.error) ? undefined : command.data
 
   return <div className="form-page">
@@ -219,7 +219,7 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
       {createPreview.isError && !previewInvalidated && <Alert type="error" showIcon className="result-card" message="無法建立預覽" description={createPreview.error.message} />}
       {stalePreview && !preview && createPreview.error instanceof HttpError && createPreview.error.status === 409 && !externalAction && <Card title="原預覽（已失效）" className="result-card">
         <Alert type="warning" showIcon message="目前來源不允許建立新預覽；以下僅供核對，不能送出" />
-        <Descriptions column={1} bordered size="small" items={Object.entries(stalePreview.source_versions).map(([key, value]) => ({ key: `source:${key}`, label: `原來源 ${key}`, children: value || '未設定' }))} />
+        <Descriptions column={1} bordered size="small" items={Object.entries(stalePreview.source_versions).map(([key, value]) => ({ key: `source:${key}`, label: `原來源 ${key}`, children: displayValue(key, value, stalePreview.impact.currency) || '未設定' }))} />
         <Descriptions column={1} bordered size="small" items={Object.entries(stalePreview.impact).map(([key, value]) => ({ key: `impact:${key}`, label: key, children: displayValue(key, value, stalePreview.impact.currency) }))} />
       </Card>}
       {externalAction && stalePreview && !preview && createPreview.isError && <Card title="目前操作狀態" className="result-card" extra={<Button onClick={() => void currentOperation.refetch()} loading={currentOperation.isFetching}>更新</Button>}>
@@ -239,7 +239,7 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
       <PreviewWarnings preview={preview} expired={previewExpired} />
       {stalePreview && <Alert type="warning" showIcon message="原預覽已失效，請檢查新預覽並再次確認" description={
         <Descriptions column={1} size="small" items={[
-          ...sourceChanges.map((key) => ({ key: `source:${key}`, label: `來源 ${key}`, children: `${stalePreview.source_versions[key] ?? '未知'} → ${preview.source_versions[key] ?? '未知'}` })),
+          ...sourceChanges.map((key) => ({ key: `source:${key}`, label: `來源 ${key}`, children: <Space><span>原先：{displayValue(key, stalePreview.source_versions[key], undefined)}</span><span>現在：{displayValue(key, preview.source_versions[key], undefined)}</span></Space> })),
           ...impactChanges.map((key) => ({ key: `impact:${key}`, label: key, children: <Space><span>原先：{displayValue(key, stalePreview.impact[key], stalePreview.impact.currency)}</span><span>現在：{displayValue(key, preview.impact[key], preview.impact.currency)}</span></Space> })),
           ...(!sourceChanges.length && !impactChanges.length ? [{ key: 'same-values', label: '數值', children: '數值相同；原預覽的期限或來源已失效，仍需重新確認。' }] : []),
         ]} />

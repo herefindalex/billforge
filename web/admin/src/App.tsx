@@ -6,7 +6,7 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { advanceSessionGeneration, api, HttpError, sessionExpiredEvent, type Session } from './api/client'
+import { advanceSessionGeneration, api, canShowStaleRead, HttpError, sessionExpiredEvent, type Session } from './api/client'
 import { isExactAdminUTC } from './api/validation'
 import CreateQuote from './features/quotes/CreateQuote'
 import AcceptQuote from './features/quotes/AcceptQuote'
@@ -612,8 +612,9 @@ function StateTable({ rows, name, total, observedAt, stale, refreshing, onRefres
 
 function Dashboard() {
   const query = useQuery({ queryKey: ['overview'], queryFn: api.overview })
+  const visibleData = query.isError && !canShowStaleRead(query.error) ? undefined : query.data
   if (query.isPending) return <Skeleton active />
-  if (!query.data) return <Result status="error" title="概覽載入失敗" subTitle={query.error?.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
+  if (!visibleData) return <Result status="error" title="概覽載入失敗" subTitle={query.error?.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   const labels: Record<string, string> = {
     quotes: '報價', subscriptions: '訂閱', invoices: '帳單', payments: '付款',
     refunds: '退款', credits: 'Credit', price_versions: '價格版本', pending_outbox: '待處理 Outbox',
@@ -621,8 +622,8 @@ function Dashboard() {
   return <>
     <Space align="center"><Title level={2}>營運概覽</Title><Button onClick={() => void query.refetch()} loading={query.isFetching}>更新資料</Button></Space>
     {query.isError && <Alert type="warning" showIcon message="資料更新失敗，顯示上次讀取結果" description={query.error.message} className="result-card" />}
-    <Text type="secondary">資料觀測時間：{new Date(query.data.observed_at).toLocaleString()}</Text>
-    <div className="stat-grid">{Object.entries(query.data.counts).map(([key, value]) =>
+    <Text type="secondary">資料觀測時間：{new Date(visibleData.observed_at).toLocaleString()}</Text>
+    <div className="stat-grid">{Object.entries(visibleData.counts).map(([key, value]) =>
       <Card key={key}><Statistic title={labels[key] ?? key} value={value} /></Card>)}</div>
   </>
 }
@@ -649,6 +650,7 @@ function ResourceView({ name, path }: { name: string; path: string }) {
     queryKey: ['resource', path, cursor, filterSignature],
     queryFn: () => api.resource(path, cursor, filters),
   })
+  const visibleData = query.isError && !canShowStaleRead(query.error) ? undefined : query.data
   const applyFilters = (values: Record<string, string | undefined>) => {
     const next = new URLSearchParams()
     for (const key of filterKeys) {
@@ -688,15 +690,15 @@ function ResourceView({ name, path }: { name: string; path: string }) {
       <Form.Item><Space><Button type="primary" htmlType="submit">套用篩選</Button><Button onClick={() => setSearchParams(new URLSearchParams())}>清除篩選</Button></Space></Form.Item>
     </Form>}
     {query.isPending && <Skeleton active />}
-    {query.isError && !query.data && <Result status="error" title="資料載入失敗" subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />}
-    {query.isError && query.data && <Alert type="warning" showIcon message="資料更新失敗，顯示上次讀取結果" description={query.error.message} className="result-card" />}
-      {query.data && <>
-      <StateTable rows={query.data.items} name={name} total={query.data.total} observedAt={query.data.observed_at} stale={query.isError} refreshing={query.isFetching} onRefresh={() => { void query.refetch() }} />
+    {query.isError && !visibleData && <Result status="error" title="資料載入失敗" subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />}
+    {query.isError && visibleData && <Alert type="warning" showIcon message="資料更新失敗，顯示上次讀取結果" description={query.error.message} className="result-card" />}
+      {visibleData && <>
+      <StateTable rows={visibleData.items} name={name} total={visibleData.total} observedAt={visibleData.observed_at} stale={query.isError} refreshing={query.isFetching} onRefresh={() => { void query.refetch() }} />
         <Text type="secondary">每頁依查詢當下的資料產生；翻頁不是全域快照。</Text>
         <Space className="pager">
         <Button disabled={previousCursors.length === 0} onClick={previousPage}>上一頁</Button>
         <Text>第 {previousCursors.length + 1} 頁</Text>
-        <Button disabled={!query.data.next_cursor} onClick={nextPage}>下一頁</Button>
+        <Button disabled={!visibleData.next_cursor} onClick={nextPage}>下一頁</Button>
       </Space>
     </>}
   </>

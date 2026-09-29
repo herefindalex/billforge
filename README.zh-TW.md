@@ -38,6 +38,7 @@ node web/admin/e2e/audit-action-cases.mjs "$audit_file"
 ## CLI 與本機 API
 
 ```sh
+mkdir -p ./billforge-data
 go run ./cmd/lab
 go run ./cmd/lab menu ./billforge-data/commerce.db ./billforge-data/provider.db
 go run ./cmd/lab serve ./billforge-data/commerce.db ./billforge-data/provider.db 127.0.0.1:8080
@@ -55,6 +56,7 @@ go run ./cmd/lab demo /tmp/billforge-crash-commerce.db /tmp/billforge-crash-prov
 複製 `.env.example` 為 `.env`，設定 `BILLFORGE_ADMIN_USERNAME` 與 `BILLFORGE_ADMIN_PASSWORD`（12–72 bytes）。密碼僅放在伺服器環境或 `.env`，不可使用 `VITE_` 前綴。限制 `.env` 僅供本機使用者讀取。建置前端後，以兩個**不同**的持久化資料庫檔案啟動：
 
 ```sh
+mkdir -p ./billforge-data
 pnpm --dir web/admin install --frozen-lockfile
 pnpm --dir web/admin build
 go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db 127.0.0.1:8080

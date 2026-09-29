@@ -1403,7 +1403,9 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       const response = page.waitForResponse((value) => value.url().endsWith('/admin/api/commands') && value.request().method() === 'POST' && (value.request().postData() ?? '').includes('"action_id":"C04"'))
       await page.getByRole('button', { name: '確認升級' }).click()
       await page.getByRole('dialog').getByRole('button', { name: '確認升級' }).click()
-      expect((await response).status()).toBe(409)
+      const lowerRejected = await response
+      expect(lowerRejected.status()).toBe(409)
+      expect((await lowerRejected.json()).error.code).toBe('PREVIEW_STALE')
       const stale = page.locator('.ant-alert').filter({ hasText: '原方案變更預覽已失效，請檢查最新來源' })
       await expect(stale.getByText('原先：USD 40.00')).toBeVisible()
       await expect(stale.getByText(/現在：USD 39\.\d{2}/)).toBeVisible()
@@ -1415,7 +1417,9 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       const higherResponse = page.waitForResponse((value) => value.url().endsWith('/admin/api/commands') && value.request().method() === 'POST' && (value.request().postData() ?? '').includes('"action_id":"C04"'))
       await page.getByRole('main').getByRole('button', { name: '確認升級' }).click()
       await page.getByRole('dialog').getByRole('button', { name: '確認升級' }).click()
-      expect((await higherResponse).status()).toBe(409)
+      const higherRejected = await higherResponse
+      expect(higherRejected.status()).toBe(409)
+      expect((await higherRejected.json()).error.code).toBe('PREVIEW_STALE')
       await expect(stale.getByText(/原先：USD 39\.\d{2}/)).toBeVisible()
       await expect(stale.getByText('現在：USD 40.00')).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)

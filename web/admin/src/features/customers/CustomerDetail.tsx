@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError } from '../../api/client'
+import { api, canShowStaleRead, HttpError } from '../../api/client'
 import Money from '../../components/Money'
 
 export default function CustomerDetail() {
@@ -9,15 +9,22 @@ export default function CustomerDetail() {
   const navigate = useNavigate()
   const query = useQuery({ queryKey: ['customer', id], queryFn: () => api.customer(id), enabled: id !== '' })
   if (query.isPending) return <Skeleton active />
-  if (query.isError) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
     return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到客戶' : status === 403 ? '沒有權限查看客戶' : '客戶資料無法載入'} subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   }
+  if (!query.data) return null
+  const stale = query.isError
   const customer = query.data
   const limit = BigInt(customer.RelatedLimit)
   const truncated = BigInt(customer.SubscriptionCount) > limit || BigInt(customer.QuoteCount) > limit || BigInt(customer.InvoiceCount) > limit || BigInt(customer.CreditCount) > limit
   return <div className="form-page">
-    <Typography.Title level={2}>客戶詳情</Typography.Title>
+    <Space align="center" wrap>
+      <Typography.Title level={2} style={{ margin: 0 }}>客戶詳情</Typography.Title>
+      {query.isFetching && <Tag>更新中</Tag>}
+      <Button onClick={() => void query.refetch()}>重新整理</Button>
+    </Space>
+    {stale && <Alert type="warning" showIcon className="result-card" message="無法更新客戶；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(query.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void query.refetch()}>重試</Button></Space>} />}
     <Typography.Paragraph type="secondary">資料查詢時間：{new Date(query.dataUpdatedAt).toLocaleString()}</Typography.Paragraph>
     {truncated && <Alert type="warning" showIcon className="form-alert" message={`每類僅顯示最近 ${limit} 筆；請用資源列表繼續查詢。`} />}
     <Card title="客戶摘要">
@@ -31,7 +38,7 @@ export default function CustomerDetail() {
         { key: 'read', label: '讀取 Owner', children: customer.ReadOwner || '無' },
         { key: 'writer', label: '寫入 Owner', children: customer.WriterOwner || '無' },
       ]} />
-      <Button type="primary" className="result-card" onClick={() => navigate(`/quotes/new?customer_id=${encodeURIComponent(id)}`)}>為此客戶建立報價</Button>
+      <Button type="primary" className="result-card" disabled={stale} onClick={() => navigate(`/quotes/new?customer_id=${encodeURIComponent(id)}`)}>為此客戶建立報價</Button>
     </Card>
     <Card title="訂閱" className="result-card">
       <Table size="small" pagination={false} rowKey="ID" dataSource={customer.Subscriptions ?? []} scroll={{ x: 650 }} columns={[
@@ -45,7 +52,7 @@ export default function CustomerDetail() {
     </Card>
     <Card title="報價" className="result-card">
       <Table size="small" pagination={false} rowKey="ID" dataSource={customer.Quotes ?? []} scroll={{ x: 600 }} columns={[
-        { title: '報價 ID', dataIndex: 'ID', render: (value: string) => <Button type="link" onClick={() => navigate(`/quotes/${encodeURIComponent(value)}/accept`)}>{value}</Button> },
+        { title: '報價 ID', dataIndex: 'ID', render: (value: string) => <Button type="link" disabled={stale} onClick={() => navigate(`/quotes/${encodeURIComponent(value)}/accept`)}>{value}</Button> },
         { title: '金額', key: 'amount', render: (_, row) => <Money minor={row.AmountMinor} currency={row.Currency} /> },
         { title: '合約版本', dataIndex: 'ContractVersionID', render: (value: string) => value || '無' },
         { title: '到期', dataIndex: 'ExpiresAt', render: (value: string) => new Date(value).toLocaleString() },

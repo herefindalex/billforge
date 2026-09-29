@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Empty, Result, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, HttpError, type InvoiceHistoryKind, type InvoiceHistoryRow } from '../../api/client'
+import { api, canShowStaleRead, HttpError, type InvoiceHistoryKind, type InvoiceHistoryRow } from '../../api/client'
 import Money from '../../components/Money'
 
 const titles: Record<InvoiceHistoryKind, string> = {
@@ -30,10 +30,11 @@ export default function InvoiceHistory({ kind }: { kind: InvoiceHistoryKind }) {
     enabled: id !== '',
   })
   if (query.isPending) return <Skeleton active />
-  if (query.isError) {
+  if (query.isError && (!query.data || !canShowStaleRead(query.error))) {
     const status = query.error instanceof HttpError ? query.error.status : 0
-    return <Result status={status === 404 ? '404' : 'error'} title={status === 404 ? '找不到帳單歷史' : '帳單歷史無法載入'} subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
+    return <Result status={status === 404 ? '404' : status === 403 ? '403' : 'error'} title={status === 404 ? '找不到帳單歷史' : status === 403 ? '沒有權限查看帳單歷史' : '帳單歷史無法載入'} subTitle={query.error.message} extra={<Button onClick={() => void query.refetch()}>重試</Button>} />
   }
+  if (!query.data) return null
   const money = (minor: string) => <Money minor={minor} currency={query.data.currency} />
   const source = (item: InvoiceHistoryRow) => {
     if ('ReductionMinor' in item) return <Space wrap>{originLabels[item.OriginKind] ?? '其他領域操作'}{item.OriginKind === 'admin_command'
@@ -65,6 +66,7 @@ export default function InvoiceHistory({ kind }: { kind: InvoiceHistoryKind }) {
   }
   return <div className="form-page">
     <Typography.Title level={2}>{titles[kind]}</Typography.Title>
+    {query.isError && <Alert type="warning" showIcon className="result-card" message="無法更新帳單歷史；以下是上次成功讀取的資料" description={<Space wrap><span>上次讀取：{new Date(query.dataUpdatedAt).toLocaleString()}</span><Button onClick={() => void query.refetch()}>重試</Button></Space>} />}
     <Button onClick={() => navigate(`/invoices/${encodeURIComponent(id)}`)}>返回帳單詳情</Button>
     <Card className="result-card" extra={<Button onClick={() => void query.refetch()}>重新整理</Button>}>
       <Typography.Paragraph type="secondary">依建立時間與記錄 ID 由新到舊排序；新紀錄不會讓已讀頁重複。</Typography.Paragraph>
@@ -78,7 +80,7 @@ export default function InvoiceHistory({ kind }: { kind: InvoiceHistoryKind }) {
       <Space wrap className="result-card">
         <Button disabled={page === 0} onClick={() => setPage(page - 1)}>上一頁</Button>
         <Typography.Text>第 {page + 1} 頁</Typography.Text>
-        <Button disabled={!query.data.next_cursor} onClick={() => { setCursors([...cursors.slice(0, page + 1), query.data.next_cursor]); setPage(page + 1) }}>下一頁</Button>
+        <Button disabled={query.isError || !query.data.next_cursor} onClick={() => { setCursors([...cursors.slice(0, page + 1), query.data.next_cursor]); setPage(page + 1) }}>下一頁</Button>
       </Space>
       {query.isFetching && <Alert type="info" showIcon message="更新中" />}
     </Card>

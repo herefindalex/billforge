@@ -864,6 +864,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       await expect(difference).toBeVisible()
       await expect(difference.getByText('原先：USD 20.00')).toBeVisible()
       await expect(difference.getByText('現在：USD 15.00')).toBeVisible()
+      await expect(page.getByRole('button', { name: '確認建立付款' })).toBeFocused()
       expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations)
       await page.getByRole('button', { name: '確認建立付款' }).click()
       await page.getByRole('dialog').getByRole('button', { name: '確認建立' }).click()
@@ -872,6 +873,38 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     } finally {
       await other.close()
     }
+  })
+
+  test('rejected payment creation restores focus and permits one new payment intent', async ({ page }) => {
+    await signIn(page)
+    const { invoiceID } = await createAcceptedSubscription(page, `payment-rejected-${randomUUID()}`, 'basic')
+    const beforeOperations = count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)
+    await page.goto(`${app.baseURL}/admin/invoices/${invoiceID}/payments/new`)
+    await page.getByRole('textbox', { name: '付款金額（最小貨幣單位）' }).fill('300')
+    await page.getByRole('button', { name: '預覽付款' }).click()
+    await expect(page.getByText('付款預覽', { exact: true })).toBeVisible()
+
+    await page.route('**/admin/api/commands', async (route) => {
+      if (route.request().method() === 'POST' && (route.request().postData() ?? '').includes('"action_id":"C07"')) {
+        await route.fulfill({ status: 422, contentType: 'application/json', body: '{"error":{"code":"INVALID_PAYLOAD","message":"Injected rejection"}}' })
+      } else {
+        await route.continue()
+      }
+    }, { times: 1 })
+    await page.getByRole('button', { name: '確認建立付款' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認建立' }).click()
+    await expect(page.getByText('命令未被接受，請檢查輸入')).toBeVisible()
+    await expect(page.getByRole('button', { name: '預覽付款' })).toBeFocused()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)).toBe(0)
+    expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations)
+
+    await page.unroute('**/admin/api/commands')
+    await page.getByRole('button', { name: '預覽付款' }).click()
+    await page.getByRole('button', { name: '確認建立付款' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認建立' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations + 1)
   })
 
   test('competing payment previews keep only the winning replacement operation', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Space, Typography } from 'antd'
 import { useParams } from 'react-router-dom'
@@ -25,6 +25,7 @@ export default function CreatePayment({ session }: { session: Session }) {
   const previewExpired = usePreviewExpired(preview?.expires_at)
   const [stalePreview, setStalePreview] = useState<Preview | null>(null)
   const [previewInvalidated, setPreviewInvalidated] = useState(false)
+  const [restoreFocus, setRestoreFocus] = useState(false)
   const formRevision = useRef(0)
   const [pending, setPending] = useState<Pending | null>(() => loadPending(id))
   const [commandID, setCommandID] = useStoredCommandID(session.actor_id, 'C07', id)
@@ -53,13 +54,26 @@ export default function CreatePayment({ session }: { session: Session }) {
         if (error.code === 'PREVIEW_STALE') {
           form.setFieldsValue({ amount_minor: intent.amountMinor })
           setStalePreview(preview)
-          createPreview.mutate({ amountMinor: intent.amountMinor, revision: formRevision.current })
+          createPreview.mutate({ amountMinor: intent.amountMinor, revision: formRevision.current }, { onSettled: () => setRestoreFocus(true) })
         } else {
           setStalePreview(null)
+          setRestoreFocus(true)
         }
       }
     },
   })
+  useEffect(() => {
+    if (!restoreFocus || pending !== null || createPreview.isPending) return
+    const button = document.getElementById(preview ? 'payment-create-confirm' : 'payment-create-preview') as HTMLButtonElement | null
+    if (!button || button.disabled) return
+    const frame = requestAnimationFrame(() => {
+      if (button.isConnected && !button.disabled) {
+        button.focus()
+        setRestoreFocus(false)
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [restoreFocus, pending, createPreview.isPending, preview])
   const onValuesChange = () => {
     formRevision.current += 1
     setStalePreview(null)
@@ -91,7 +105,7 @@ export default function CreatePayment({ session }: { session: Session }) {
         <Form.Item label="付款金額（最小貨幣單位）" name="amount_minor" rules={[{ required: true, message: '請輸入金額' }, { pattern: /^[1-9]\d*$/, message: '請輸入正整數' }, { validator: async (_: unknown, value: string | undefined) => {
           if (value && !isNonNegativeInt64String(value.trim())) throw new Error('付款金額不可超過 int64 上限')
         } }]}><Input inputMode="numeric" /></Form.Item>
-        <Button type="primary" htmlType="submit" loading={createPreview.isPending} disabled={pending !== null || commandID !== null}>預覽付款</Button>
+        <Button id="payment-create-preview" type="primary" htmlType="submit" loading={createPreview.isPending} disabled={pending !== null || commandID !== null}>預覽付款</Button>
       </Form>
     </Card>
     {previewInvalidated && !preview && !pending && !commandID && <Alert type="warning" showIcon className="result-card" message="付款金額已變更，請重新預覽" />}
@@ -108,7 +122,7 @@ export default function CreatePayment({ session }: { session: Session }) {
         { key: 'outstanding', label: '目前未清餘額', children: <Money minor={preview.impact.outstanding_before_minor} currency={preview.impact.currency} /> },
         { key: 'expiry', label: '預覽有效至', children: new Date(preview.expires_at).toLocaleString() },
       ]} />
-      <Button className="result-card" onClick={confirm} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>確認建立付款</Button>
+      <Button id="payment-create-confirm" className="result-card" onClick={confirm} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>確認建立付款</Button>
     </Card>}
     {submit.isError && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效，請重新預覽' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '命令未被接受，請檢查輸入' : '命令結果尚未確認'} description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card">

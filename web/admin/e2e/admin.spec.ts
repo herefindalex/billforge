@@ -4275,6 +4275,73 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(count('SELECT COUNT(*) FROM repair_operations WHERE discrepancy_id=?', discrepancyID)).toBe(1)
   })
 
+  test('lost C34 repair response recovers the original command without repeating repair', async ({ page }) => {
+    await signIn(page)
+    const { subscriptionID, operationID } = await createPaidSubscription(page, `lost-repair-${randomUUID()}`, 'basic')
+    await page.goto(`${app.baseURL}/admin/jobs/entitlement-refresh`)
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await page.getByRole('button', { name: '確認刷新權益' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認刷新權益' }).click()
+    await expect.poll(async () => (await (await page.request.get(`${app.baseURL}/admin/api/subscriptions/${encodeURIComponent(subscriptionID)}/entitlement`)).json()).entitlement?.SourceOperationID).toBe(operationID)
+
+    const removeProjection = 'import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute("DELETE FROM entitlements WHERE subscription_id=?",(sys.argv[2],)); db.commit()'
+    execFileSync('python3', ['-c', removeProjection, app.commercePath, subscriptionID])
+    const capturesBefore = scalar('SELECT COUNT(*) FROM captures WHERE provider_key LIKE ?', '%', app.providerPath)
+
+    await page.goto(`${app.baseURL}/admin/reconciliation-runs/new`)
+    await page.getByLabel('核對截止時間（UTC）').fill(new Date().toISOString())
+    await page.getByRole('button', { name: '確認執行對帳' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認執行對帳' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+
+    const discrepancyID = scalar('SELECT id FROM discrepancies WHERE object_id=? AND kind="entitlement_projection"', subscriptionID)
+    expect(scalar('SELECT classification FROM discrepancies WHERE id=?', discrepancyID)).toBe('SAFE_AUTO_REPAIR')
+    await page.goto(`${app.baseURL}/admin/discrepancies/${encodeURIComponent(discrepancyID)}`)
+    await page.getByRole('button', { name: '規劃修復' }).click()
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await expect(page.getByText('操作預覽', { exact: true })).toBeVisible()
+
+    let dropped = false
+    let droppedCommand: Promise<number> | undefined
+    await page.route('**/admin/api/commands', async (route) => {
+      if (!dropped && route.request().method() === 'POST') {
+        dropped = true
+        droppedCommand = commitThenDropResponse(page, route).then((response) => response.status())
+        expect(await droppedCommand).toBe(202)
+        return
+      }
+      await route.continue()
+    })
+    await page.getByRole('button', { name: '確認修復' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認修復' }).click()
+    await expect(page.getByText('原命令的結果尚未確認')).toBeVisible()
+    expect(dropped).toBe(true)
+    expect(await droppedCommand).toBe(202)
+
+    const commandCount = () => count('SELECT COUNT(*) FROM admin_commands WHERE action_id="C34" AND target_id=?', discrepancyID)
+    expect(commandCount()).toBe(1)
+    const commandID = scalar('SELECT id FROM admin_commands WHERE action_id="C34" AND target_id=?', discrepancyID)
+    const requestKey = scalar('SELECT idempotency_key FROM admin_commands WHERE id=?', commandID)
+    expect(requestKey).not.toBe('')
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM repair_operations WHERE discrepancy_id=?', discrepancyID)).toBe(1)
+    expect(scalar('SELECT status FROM repair_operations WHERE discrepancy_id=?', discrepancyID)).toBe('verified')
+    expect(count('SELECT COUNT(*) FROM entitlements WHERE subscription_id=?', subscriptionID)).toBe(1)
+    expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key LIKE ?', '%', app.providerPath)).toBe(capturesBefore)
+
+    await page.unroute('**/admin/api/commands')
+    await page.reload()
+    await expect(page.getByText('原命令的結果尚未確認')).toBeVisible()
+    await page.getByRole('button', { name: '用原 request key 查詢' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    expect(commandCount()).toBe(1)
+    expect(scalar('SELECT idempotency_key FROM admin_commands WHERE id=?', commandID)).toBe(requestKey)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM repair_operations WHERE discrepancy_id=?', discrepancyID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM entitlements WHERE subscription_id=?', subscriptionID)).toBe(1)
+    expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key LIKE ?', '%', app.providerPath)).toBe(capturesBefore)
+  })
+
   test('changed source revision blocks repair and shows the blocked result', async ({ page }) => {
     await signIn(page)
     const { subscriptionID, operationID } = await createPaidSubscription(page, `blocked-repair-${randomUUID()}`, 'basic')

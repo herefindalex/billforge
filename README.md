@@ -13,7 +13,7 @@ The local CLI, API, and React + Ant Design Web Admin are available. The Web Admi
 - Published prices and contracts retain their versions so later changes do not silently rewrite existing obligations.
 - Administrative changes use previews, source version checks, idempotency keys, and command receipts. When a payment or refund dispatch preview becomes stale, the Web Admin shows the previous preview alongside the current operation state.
 - The commerce database and fake provider database are separate, allowing retries, lost responses, and reconciliation to be tested across an external boundary.
-- Reconciliation repair checks provider amount mismatches against the payment being repaired. A mismatch blocks that payment's recovery without stalling unrelated payments.
+- Reconciliation repair checks provider amount mismatches against the payment being repaired. A mismatch blocks that payment's recovery without stalling unrelated payments. If the browser loses a successful repair response, the administrator can retrieve the original command by its request key without repeating the repair.
 
 ## Requirements and tests
 

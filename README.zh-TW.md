@@ -2,11 +2,11 @@
 
 [English](README.md) | 繁體中文 | [简体中文](README.zh-CN.md)
 
-Billforge 是本機的商務系統正確性實驗專案。它用 Go 與兩個獨立的 SQLite 資料庫演練定價版本、訂閱與合約、付款與權益、用量關帳、更正、退款、對帳及帳戶遷移。設計背景見[平台計畫](docs/commerce-lab-plan.md)與 [A–D 設計推演](docs/design/README.md)；實作證據見 [MVP 完成追蹤](docs/implementation/mvp-completion-tracker.md)。
+Billforge 是本機的商務系統正確性實驗專案。它用 Go 與兩個獨立的 SQLite 資料庫演練定價版本、訂閱與合約、付款與權益、用量關帳、更正、退款、對帳及帳戶遷移。設計背景見[平台計畫](docs/commerce-lab-plan.zh-TW.md)與 [A–D 設計推演](docs/design/README.zh-TW.md)；實作證據見 [MVP 完成追蹤](docs/implementation/mvp-completion-tracker.zh-TW.md)。
 
 ## 目前狀態
 
-本機 CLI、API，以及以 React 與 Ant Design 建置的 Web Admin 已可使用。Web Admin 的 A01–A30 驗收仍在進行；[驗收紀錄](docs/implementation/web-admin.md)區分已驗證案例與剩餘檢查。
+本機 CLI、API，以及以 React 與 Ant Design 建置的 Web Admin 已可使用。Web Admin 的 A01–A30 驗收仍在進行；[驗收紀錄](docs/implementation/web-admin.zh-TW.md)區分已驗證案例與剩餘檢查。
 
 ## 這個實驗室驗證什麼
 
@@ -49,7 +49,7 @@ go run ./cmd/lab demo /tmp/billforge-commerce.db /tmp/billforge-provider.db lost
 go run ./cmd/lab demo /tmp/billforge-crash-commerce.db /tmp/billforge-crash-provider.db crash_after_provider
 ```
 
-互動式選單可執行操作並查詢目前狀態，見 [CLI 使用說明](docs/implementation/interactive-cli.md)。`serve` 僅接受 loopback 位址；部分內部 HTTP 操作需設定 `BILLFORGE_INTERNAL_TOKEN`，見 [v1 API 說明](docs/implementation/phase-p2-v1-api.md)。
+互動式選單可執行操作並查詢目前狀態，見 [CLI 使用說明](docs/implementation/interactive-cli.zh-TW.md)。`serve` 僅接受 loopback 位址；部分內部 HTTP 操作需設定 `BILLFORGE_INTERNAL_TOKEN`，見 [v1 API 說明](docs/implementation/phase-p2-v1-api.zh-TW.md)。
 
 ## Web Admin
 
@@ -76,9 +76,9 @@ go run ./cmd/lab admin ./billforge-data/commerce.db ./billforge-data/provider.db
 
 具備 `lab.control` 權限時，「實驗控制」可查看 fake provider 狀態，以及分頁的收款與退款紀錄。這些資料來自獨立的本機資料庫；API 金額仍以精確的最小貨幣單位字串回傳。
 
-若要限制管理員能力，可設定 `BILLFORGE_ADMIN_CAPABILITIES=read`，或提供其他以逗號分隔的能力。未設定時，本機管理員具有完整權限。能力變更需重啟；恢復中的命令會依新權限與既有外部義務重新判定，詳見 [Web Admin 實作紀錄](docs/implementation/web-admin.md)。
+若要限制管理員能力，可設定 `BILLFORGE_ADMIN_CAPABILITIES=read`，或提供其他以逗號分隔的能力。未設定時，本機管理員具有完整權限。能力變更需重啟；恢復中的命令會依新權限與既有外部義務重新判定，詳見 [Web Admin 實作紀錄](docs/implementation/web-admin.zh-TW.md)。
 
-若要將前端資產嵌入二進位檔，先建置前端，再執行上方的 `go build -tags admin_ui`。不帶此 tag 的開發執行會從 `cmd/lab/adminassets/dist` 讀取建置產物。完整操作、升級與恢復流程見 [Web Admin 使用與驗收紀錄](docs/implementation/web-admin.md)。
+若要將前端資產嵌入二進位檔，先建置前端，再執行上方的 `go build -tags admin_ui`。不帶此 tag 的開發執行會從 `cmd/lab/adminassets/dist` 讀取建置產物。完整操作、升級與恢復流程見 [Web Admin 使用與驗收紀錄](docs/implementation/web-admin.zh-TW.md)。
 
 ## 範圍界線
 

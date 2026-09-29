@@ -1,17 +1,20 @@
-# F6：tasks 用量、關帳、晚到與更正
+# Phase F6: Usage
 
-## 事件與歸期
+**English** | [繁體中文](phase-f6-usage.zh-TW.md) | [简体中文](phase-f6-usage.zh-CN.md)
 
-`RecordUsage` 以 tenant＋source＋event ID 去重，payload 指紋包含訂閱、meter、數量與事件時間；相同內容重送回原事件，內容改動衝突。事件時間決定帳期與當時的 PriceVersion assignment，接收時間決定是否進入關帳 cutoff。Basic 或無有效 assignment 的 tasks 事件會拒絕。用量更正使用新事件 ID、引用原事件並保留原事件時間；不能撤銷超過原量。
 
-`CloseUsagePeriod` 保存 cutoff 和首次 rating revision；`RerateUsagePeriod` 以持久事件重算原期總量。每個 revision 保存原量、allowance、超額量、未捨入的 cents 有理數、half-even 捨入值及相對前版的差額；無新事實時重跑回原 revision。
+## Events and Periods
 
-## 金額 oracle
+`RecordUsage` is loaded with tenant+source+event ID, and the payload fingerprint contains subscriptions, meters, number and time of events; The same content returns to the original event, changing the conflict. The time of the event determines the billing period and the PriceVersion assignment at the time, and the time of receipt determines whether the account is cutoff. Basic or non-valid assignment tasks will be rejected. The user uses the new event ID to correct the reference to the original event and retains the timing of the original event. It is not possible to withdraw more than the original quantity.
 
-Pro 包含 20,000 tasks，超額每 task $0.001。原期收到 20,003 tasks 時，精確超額是 $0.003，捨入 $0.00；下期續約發票保留金額為 0 的原期用量行。晚到同原期的 7 tasks 後，累計 20,010 tasks，精確 $0.010，累計應收 $0.01；扣除已入帳 $0.00，下一張續約發票增加標明原帳期的 $0.01 debit。原發票及其行項保持不可變。
+`CloseUsagePeriod` maintains cutoff and first rating revision; `RerateUsagePeriod` is calculated as the total duration of the last event. Each revision preserves the original quantity, allowance, excess quantity, undelivered cents with a reasonable number, half-even deferred value and the relative difference between the previous edition; In the case of the original revision, no new facts are revealed.
 
-若後續更正使已開票用量高於重新評價金額，`RunUsageCreditNotes` 對實際承載該用量的發票過帳減額更正，留下 usage CreditNote 與 Correction 關聯；funded credit 仍依原收款 allocation 釋放。若負差額尚未更正，續約不會默默把它併作新期收費。CLI「用量與關帳」提供事件、撤銷、關帳、重算及 CreditNote 操作；「狀態查詢」提供事件、rating revision、累計已開票與已更正金額。
+## amount of oracle
 
-驗證包含同 ID 重送及內容衝突、20,003→$0.00、晚到 7 tasks→下一張 $0.01、重算／續約重跑、撤銷 7 tasks→對原收費發票減額 $0.01，以及僅釋放實收 $0.01 credit。
+Pro contains 20,000 tasks, which is $0.001 per task. The precise surplus was $0.003 when the initial period received 20,003 tasks, and the surplus was $0.003 when the initial period received $0.00; Subsequent renewal of the invoice retains the original use of the amount of 0. After 7 tasks late in the same period, a cumulative total of 20,010 tasks, accurate to $0.010, is collected at $0.01; The deduction is $0.00 and the next renewal invoice adds a $0.01 debit of the original billing period. The original invoices and their items remain unchanged.
 
-限制：目前一個帳期只支援一個 tasks 價格版本；若同帳期出現兩個不同用量費率，關帳會拒絕並要求定義跨 assignment 的 allowance 政策。其他 meter 及新的 SKU 元件由 P01 擴充。
+If the subsequent correction makes the amount of invoices that have been issued higher than the amount re-evaluated, `RunUsageCreditNotes` corrects the invoice deduction on the actual carrying amount of the invoice, leaving the usage CreditNote associated with Correction; Funded credit is still released according to the original receipts allocation. If the negative difference has not been corrected, the renewal will not silence it and charge it for a new term. CLI "Quantity and Accounts" provides events, cancellations, cancellations, recalculations, and operations on CreditNote; "State Search" provides events, rating revisions, cumulative voting and adjusted amounts.
+
+Verification includes the same ID re-send and content conflict, 20,003→$0.00, late to 7 tasks→ the next $0.01, re-calculation/renewal re-run, cancellation of 7 tasks→ original fee discount of $0.01, and only release of actual receipts of $0.01 credit.
+
+Limitations: Currently, a billing period only supports one task price version; If there are two different usage rates for the same billing period, the account will reject and require that an allowance policy be defined across assignments. Other meters and new SKU components were expanded by P01.

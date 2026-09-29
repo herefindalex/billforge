@@ -1343,6 +1343,156 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await expect(page.getByRole('row', { name: /錯誤/ })).toContainText('訂閱 Revision 已改變')
   })
 
+  test('lost scheduled plan response recovers its original command and one schedule', async ({ page }) => {
+    await signIn(page)
+    const customerID = `plan-recovery-${randomUUID()}`
+    const { subscriptionID } = await createPaidSubscription(page, customerID, 'basic')
+    const revision = scalar('SELECT revision FROM subscriptions WHERE id=?', subscriptionID)
+
+    await page.goto(`${app.baseURL}/admin/quotes/new`)
+    await page.getByRole('button', { name: '建立另一筆報價' }).click()
+    await page.getByRole('textbox', { name: /客戶 ID/ }).fill(customerID)
+    await page.getByRole('textbox', { name: /方案 ID/ }).fill('pro')
+    await page.getByRole('textbox', { name: /席次/ }).fill('5')
+    await page.getByRole('checkbox', { name: '這是現有訂閱的變更報價' }).check()
+    await page.getByRole('textbox', { name: /訂閱 ID/ }).fill(subscriptionID)
+    await page.getByRole('combobox', { name: /變更方式/ }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText('下期變更', { exact: true }).click()
+    await page.getByRole('textbox', { name: /目前 Revision/ }).fill(revision)
+    await page.getByRole('button', { name: '建立報價' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const quoteID = scalar('SELECT quote_id FROM change_quote_bindings WHERE subscription_id=?', subscriptionID)
+
+    await page.getByRole('button', { name: '前往排程下期變更' }).click()
+    await page.getByRole('button', { name: '預覽下期變更' }).click()
+    await expect(page.getByRole('button', { name: '確認排程' })).toBeVisible()
+
+    let originalKey = ''
+    let originalBody = ''
+    let dropped = false
+    await page.route('**/admin/api/commands', async (route) => {
+      if (!dropped && route.request().method() === 'POST') {
+        dropped = true
+        originalKey = route.request().headers()['idempotency-key']
+        originalBody = route.request().postData() ?? ''
+        const committed = await commitThenDropResponse(page, route)
+        expect(committed.status()).toBe(202)
+      } else {
+        await route.continue()
+      }
+    })
+    await page.getByRole('button', { name: '確認排程' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認排程' }).click()
+    await expect(page.getByText('原排程命令的結果尚未確認')).toBeVisible()
+    expect(originalKey).toBeTruthy()
+    expect(originalBody).toBeTruthy()
+    const commandID = scalar("SELECT id FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(1)
+    expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change' AND status='scheduled'", subscriptionID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+    expect(scalar("SELECT target_price_version_id FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(scalar('SELECT price_version_id FROM quotes WHERE id=?', quoteID))
+    expect(scalar("SELECT seat_quantity FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe('5')
+
+    await page.reload()
+    await expect(page.getByText('原排程命令的結果尚未確認')).toBeVisible()
+    const replay = page.waitForRequest((request) => request.url().endsWith('/admin/api/commands') && request.method() === 'POST')
+    await page.getByRole('button', { name: '用原 request key 查詢' }).click()
+    expect((await replay).headers()['idempotency-key']).toBe(originalKey)
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(1)
+    expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+
+    const session = await (await page.request.get(`${app.baseURL}/admin/api/session`)).json() as { csrf_token: string }
+    const changed = JSON.parse(originalBody) as { payload: { quote_id: string } }
+    changed.payload.quote_id = 'different-quote'
+    const conflict = await page.request.post(`${app.baseURL}/admin/api/commands`, {
+      headers: { Origin: app.baseURL, 'Idempotency-Key': originalKey, 'X-CSRF-Token': session.csrf_token },
+      data: changed,
+    })
+    expect(conflict.status()).toBe(409)
+    expect((await conflict.json()).error.code).toBe('IDEMPOTENCY_CONFLICT')
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(1)
+    expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(1)
+  })
+
+  test('lost immediate upgrade response recovers one obligation without switching service early', async ({ page }) => {
+    await signIn(page)
+    const customerID = `upgrade-recovery-${randomUUID()}`
+    const { subscriptionID } = await createPaidSubscription(page, customerID, 'basic')
+    const revision = scalar('SELECT revision FROM subscriptions WHERE id=?', subscriptionID)
+
+    await page.goto(`${app.baseURL}/admin/quotes/new`)
+    await page.getByRole('button', { name: '建立另一筆報價' }).click()
+    await page.getByRole('textbox', { name: /客戶 ID/ }).fill(customerID)
+    await page.getByRole('textbox', { name: /方案 ID/ }).fill('pro')
+    await page.getByRole('textbox', { name: /席次/ }).fill('5')
+    await page.getByRole('checkbox', { name: '這是現有訂閱的變更報價' }).check()
+    await page.getByRole('textbox', { name: /訂閱 ID/ }).fill(subscriptionID)
+    await page.getByRole('combobox', { name: /變更方式/ }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText('立即升級', { exact: true }).click()
+    await page.getByRole('textbox', { name: /目前 Revision/ }).fill(revision)
+    await page.getByRole('button', { name: '建立報價' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    await page.getByRole('button', { name: '前往立即升級' }).click()
+    await page.getByRole('button', { name: '預覽立即升級' }).click()
+    await expect(page.getByRole('button', { name: '確認升級' })).toBeVisible()
+
+    let originalKey = ''
+    let originalBody = ''
+    let dropped = false
+    await page.route('**/admin/api/commands', async (route) => {
+      if (!dropped && route.request().method() === 'POST') {
+        dropped = true
+        originalKey = route.request().headers()['idempotency-key']
+        originalBody = route.request().postData() ?? ''
+        const committed = await commitThenDropResponse(page, route)
+        expect(committed.status()).toBe(202)
+      } else {
+        await route.continue()
+      }
+    })
+    await page.getByRole('button', { name: '確認升級' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認升級' }).click()
+    await expect(page.getByText('原升級命令的結果尚未確認')).toBeVisible()
+    expect(originalKey).toBeTruthy()
+    expect(originalBody).toBeTruthy()
+    const commandID = scalar("SELECT id FROM admin_commands WHERE action_id='C04' AND target_id=?", subscriptionID)
+    const changeID = scalar('SELECT id FROM immediate_changes WHERE subscription_id=?', subscriptionID)
+    const invoiceID = scalar('SELECT invoice_id FROM immediate_changes WHERE id=?', changeID)
+    const operationID = scalar('SELECT operation_id FROM immediate_changes WHERE id=?', changeID)
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C04' AND target_id=?", subscriptionID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?', subscriptionID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM invoices WHERE id=?', invoiceID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM payment_operations WHERE id=?', operationID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+    expect(scalar('SELECT price_version_id FROM subscriptions WHERE id=?', subscriptionID)).toBe('basic-v1')
+
+    await page.reload()
+    await expect(page.getByText('原升級命令的結果尚未確認')).toBeVisible()
+    const replay = page.waitForRequest((request) => request.url().endsWith('/admin/api/commands') && request.method() === 'POST')
+    await page.getByRole('button', { name: '用原 request key 查詢' }).click()
+    expect((await replay).headers()['idempotency-key']).toBe(originalKey)
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C04' AND target_id=?", subscriptionID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?', subscriptionID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM invoices WHERE id=?', invoiceID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM payment_operations WHERE id=?', operationID)).toBe(1)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(1)
+    expect(scalar('SELECT price_version_id FROM subscriptions WHERE id=?', subscriptionID)).toBe('basic-v1')
+
+    const session = await (await page.request.get(`${app.baseURL}/admin/api/session`)).json() as { csrf_token: string }
+    const changed = JSON.parse(originalBody) as { payload: { quote_id: string } }
+    changed.payload.quote_id = 'different-quote'
+    const conflict = await page.request.post(`${app.baseURL}/admin/api/commands`, {
+      headers: { Origin: app.baseURL, 'Idempotency-Key': originalKey, 'X-CSRF-Token': session.csrf_token },
+      data: changed,
+    })
+    expect(conflict.status()).toBe(409)
+    expect((await conflict.json()).error.code).toBe('IDEMPOTENCY_CONFLICT')
+    expect(count('SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?', subscriptionID)).toBe(1)
+  })
+
   test('a newly selected Pro price rejects the old bound quote before scheduling', async ({ page }) => {
     await signIn(page)
     const customerID = `superseded-plan-price-${randomUUID()}`
@@ -1407,6 +1557,15 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(0)
       expect(scalar('SELECT price_version_id FROM subscriptions WHERE id=?', subscriptionID)).toBe('basic-v1')
     } finally {
+      // The serial suite shares this SQLite fixture. Restore the default Pro
+      // selection after the supersession assertion so later C03 previews see
+      // the same catalog they started with.
+      const restoreAt = BigInt(Date.parse(effective) + 2_000) * 1_000_000n
+      const restoreSelection = `import sqlite3,sys
+db = sqlite3.connect(sys.argv[1])
+db.execute("INSERT INTO catalog_selection(plan_id,cohort,effective_at,price_version_id) VALUES('pro','default',?,'pro-v1')", (int(sys.argv[2]),))
+db.commit()`
+      execFileSync('python3', ['-c', restoreSelection, app.commercePath, String(restoreAt)])
       await submitClockControl(page, app.baseURL, session.csrf_token, 'real')
     }
   })

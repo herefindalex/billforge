@@ -1,204 +1,207 @@
-# Web Admin 設計方案
+# Web Admin Design
 
-狀態：設計與實作規劃完成，Web Admin 實作進行中。React、Ant Design 與 `.env` 單一管理帳密登入已由使用者確認。以 2026-09-26 工作區的 CLI、`api.New` 路由與領域服務為依據。功能完成範圍以[實作計畫](07-web-admin-implementation-plan.md)中的進度紀錄為準。
+**English** | [繁體中文](05-web-admin.zh-TW.md) | [简体中文](05-web-admin.zh-CN.md)
 
-## 1. 目標與範圍
 
-讓操作者可以在瀏覽器完成現有 CLI 的業務操作，並回答：客戶目前買了什麼、應付多少、實際付了多少、服務是否開通、哪一步待處理，以及下一步可以做什麼。
+Status: Design and implementation planning completed, Web Admin implementation underway. React、Ant Design and `.env` single logins have been confirmed by users. Based on the CLI, `api.New` routes and field services in the 2026-09-26 work zone. The scope of the functionality is determined by the progress record in [Action Plans](07-web-admin-implementation-plan.md).
 
-第一版沿用本機 Go＋SQLite、fake provider 與既有金額政策。提供完整功能入口、可理解的狀態、操作預覽與可追查的結果。真實金流、稅、多幣別、正式總帳及網際網路部署沿用原有 MVP 範圍限制。
+## 1. Objectives and scope
 
-**完成條件是下表全部功能可操作及查詢。** 分階段交付只是實作順序，不縮減最終範圍。模擬時間與故障注入也保留，但集中在清楚標示的「實驗室」頁面。
+It allows the operator to complete business operations with existing CLI in the browser and answer: what customers currently buy, how much they deal with, how much they actually pay, whether the service is open, what steps to take, and what can be done next.
 
-## 2. 現況與需要新增的部分
+The first version uses the native Go+SQLite, fake provider, and existing monetary policy. Provides full functional input, understandable status, operational preview and traceable results. Real money flows, taxes, multi-currency, official accounts and Internet deployments are restricted along the original MVP scope.
 
-| 現況證據 | 設計含義 |
+** Complete condition is that all functions are operational and searchable in the table below. ** Phase delivery is only in executive order, without reducing the final scope. Simulation time and fault injection are also preserved, but focus on the clearly marked "Lab" page.
+
+## 2. Current status and parts needed to be added
+
+|There is evidence.|Design meaning|
 | --- | --- |
-| `cmd/lab/menu.go` 有 13 組主選單，子選單涵蓋訂閱、付款、退款、用量、合約、對帳及兩種遷移 | 以完整 CLI 功能清單作為 Web 驗收基準 |
-| `api/v1.go` 目前提供報價、新購、訂閱變更／查詢、發票／權益讀取、用量寫入與少量內部操作 | 不能只替現有 API 加表單；尚需管理查詢與命令介面 |
-| `lab/inspect.go` 的 `State` 為 CLI 一次讀取全部資料 | Web 需要分頁、篩選、明確 DTO；不直接把整份 State 傳到瀏覽器 |
-| CLI 與 HTTP 共用 `lab` 領域服務 | 金額計算與狀態檢查繼續由 Go 領域層負責 |
-| `cmd/lab/serve.go` 僅允許 loopback；內部 API 使用伺服器設定的 token | 新增瀏覽器 session 與管理權限；內部 token 不放進前端 bundle |
-| CLI 的模擬時鐘位於 menu instance；HTTP server 目前使用實際時鐘 | Web 的時間控制需要明確的 server clock 注入與隔離，不能假設已存在 |
+|`cmd/lab/menu.go` has 13 main menu groups, which include subscriptions, payments, refunds, availability, contracts, reconciliation and two migrations.|A full list of CLI features as a benchmark for Web acceptance.|
+|`api/v1.go` is currently offering offers, new purchases, subscription changes/searching, invoices/entitlement readings, write-in volumes and a few internal operations.|It is not possible to simply add a form to an existing API; It's still necessary to manage the search and command interfaces.|
+|`lab/inspect.go`'s `State` can read all the data to CLI at once.|The Web needs to split pages, filter, specify DTO; It doesn't directly transmit the entire state to the browser.|
+|CLI and HTTP share a service in the `lab` domain.|Quantity calculations and status checks continue to be carried out by the Go sector.|
+|`cmd/lab/serve.go` only allows loopback; Internal API using server-set tokens|Adding browser session and administrative permissions; Internal tokens don't put the front end bundle in.|
+|The CLI simulation clock is located in the menu instance; HTTP servers are currently running real time.|The time control of the Web requires a clear server clock to be inserted and isolated, and cannot be assumed to exist.|
 
-來源：[互動 CLI](../implementation/interactive-cli.md)、[v1 API](../implementation/phase-p2-v1-api.md)、[帳戶遷移](../implementation/phase-p3-account-cutover.md)。
+Sources: [interactive CLI](../implementation/interactive-cli.md), [v1 API](../implementation/phase-p2-v1-api.md), and [account migration](../implementation/phase-p3-account-cutover.md).
 
-## 3. 導覽與功能覆蓋
+## 3. Guide and feature coverage
 
-左側導覽以工作目的命名；每個詳情頁均可連到相關客戶、訂閱、發票、付款與操作紀錄。
+The left-hand guide is named for the purpose of the work; Each detailed page is linked to relevant customers, subscriptions, invoices, payments and operating records.
 
-| 導覽／頁面 | 查詢內容 | 必須可操作的功能 | 主要領域來源 |
+|This is a list of articles related to Wikipedia.|Find the content.|It has to be functional.|The main sources are:|
 | --- | --- | --- | --- |
-| 總覽 | 待查證付款／退款、待收帳單、grace／暫停訂閱、對帳差異、衝突遷移 | 進入待辦對象；重新整理觀測結果 | 管理查詢 DTO |
-| 客戶與訂閱 | 客戶下訂閱、實際價與目標價、席次、帳期、revision、權益來源、時間軸 | Basic／Pro／已發布 SKU 報價及新購；下期方案變更；期末取消；取消生效前恢復；期中 Pro 升級 | `lab.go`、`subscription_changes.go`、`immediate.go` |
-| 帳單與 credit | 原始 invoice lines、來源版本、減額更正、應付餘額、credit 來源與餘額、應用紀錄 | 減額更正；credit 套用後續帳單；延遲開通更正；未提供升級服務的補償 | `corrections.go`、`immediate.go` |
-| 付款與退款 | payment obligation、嘗試、provider 觀測、分配；退款保留／已退／未知金額 | 建立部分或剩餘付款；確定失敗後重試；送出下一筆付款；依原 key 查證；保留退款額度、送出退款及查證 | `billing.go`、`refunds.go`、`lab.go` |
-| 價格與產品 | PriceVersion、元件、checksum、meter、cohort 選價歷史 | 發布新 Pro 版本；註冊 meter；發布配置式計量價格；指定 cohort 新購價格 | `catalog_admin.go`、`meter_catalog.go` |
-| 價格遷移 | 預覽逐戶差異、批次／項目狀態、衝突原因與新舊 assignment | 預覽、建立批次、暫停、略過衝突戶、重新檢查後恢復；反向遷移以新批次表達 | `price_migration.go` |
-| 用量與關帳 | meter 事件、撤銷關係、帳期彙總、rating 版本、晚到差額與待過帳 credit note | 記錄事件、撤銷事件、關帳、晚到重算、過帳負差額 CreditNote | `usage.go` |
-| 企業合約 | 客戶合約版本、席次／價格條款、期限、Net30 到期、後續價格或 hold | 發布合約；建立／接受合約報價；到期帳單送入收款佇列 | `contracts.go`、`contract_accept.go` |
-| 對帳與修復 | run、discrepancy、expected／actual、證據、來源 revision、修復與再核對結果 | 執行對帳、查差異、指定修復／原 key 查詢、記錄人工決議 | `reconciliation.go`、`reconciliation_repair.go` |
-| 帳戶遷移 | legacy/customer/beneficiary 映射、shadow、來源回填、read owner、writer owner、停止原因 | 建立映射；shadow 報價／權益比較；回填與審查修正；準備度檢查；切讀／切寫；停止新命令及遷移；adapter 查權益 | `account_migration.go` |
-| 工作與操作紀錄 | 到期工作、outbox、管理命令、進度、結果連結與失敗原因 | 到期續約；重建權益；查詢或恢復既有命令。逐項修復沿用對帳入口 | `billing.go`、`entitlements.go`、新增管理命令紀錄 |
-| 實驗室 | 模擬時間、fake provider 狀態與已啟用故障 | 調整模擬時間；設定下一筆付款／退款結果；支援 CLI 已有的遺失回應及中斷情境 | `cmd/lab/menu*.go`、`provider.go` |
+|What is the meaning of this?|Payment/return, receipt of bills, grace/ suspension of subscriptions, reconciliation differences, conflict migration|entering the object to be processed; The results of the observation are updated.|Manage the search for DTO|
+|Customers and subscriptions|Subscriptions, actual prices and target prices, seats, billing period, revisions, entitlement sources, timeline|Basic/Pro/ has released SKU offers and new purchases; Changes to the next phase of the program; Cancellation of the term; Cancellation of recovery before entry into force; Pro upgrades during the period| `lab.go`、`subscription_changes.go`、`immediate.go` |
+|Accounts and credits|Original invoice lines, source version, deduction correction, balance of dealing, credit source and balance, application record|Correction of deductions; credit for follow-up bills; delayed reopening; In the meantime, we're going to have to make a decision.| `corrections.go`、`immediate.go` |
+| Payments and refunds | Payment obligation, attempt, provider observation, allocation; Refunds withheld/withdrawn/unknown amount | Create partial or residual payments; Retry after failure; Send the next payment; Verify with the original key; Keep the refund amount, send refunds, and verify | `billing.go`、`refunds.go`、`lab.go` |
+|Prices and products|PriceVersion, components, checksum, meter, cohort catalog selection history|The new version of Pro is released. Registered meter; publishing a configured price measurement; Specify the cohort New purchase price| `catalog_admin.go`、`meter_catalog.go` |
+|Price migration|Preview Differences per client, batch/project status, causes of conflict with new and old assignments|Preview, create batches, pause, briefly scan conflict pages, recover after re-checking; The reverse migration is expressed in new batches.| `price_migration.go` |
+|How much is the amount of food?|Meters, cancellation relationships, billing period summaries, rating versions, delayed differences with outstanding credit notes|Record the events, cancel the events, close the accounts, delay to recalculation, over the account balance CreditNote| `usage.go` |
+|Corporate contracts|Client contract version, seat/price terms, deadline, Net30 expiration, subsequent price or hold|issuing a contract; Create/accept a contract offer; The final invoice is sent to the receipt queue.| `contracts.go`、`contract_accept.go` |
+|Reconciliation and Reconciliation|Run, Discrepancy, Expected/actual, Evidence, Source Revision, Repair and Re-Check results|Run reconciliation, look for differences, specify repair/original keys, look for, record artificial resolutions| `reconciliation.go`、`reconciliation_repair.go` |
+| Account migration | Legacy/customer/beneficiary mapping, shadow comparison, source backfill, read and write owners, stop reasons | Create mappings; compare shadow quotes and entitlements; backfill and review corrections; check readiness; switch readers and writers; stop new commands and migration; inspect entitlements through the adapter | `account_migration.go` |
+|Work and operation records|Expired work, outbox, manage commands, progress, results link to cause and effect.|the expiry date; Rebuild the entitlement; Find or restore existing commands. Repair by re-conciliation entrance.|`billing.go`, `entitlements.go`, adding the management command record|
+|The lab.|Simulated time, fake provider status and activated failures|• Adjusting the simulation time; Set the following payment/withdrawal result; Support the existing lost response and disruption situations of the CLI| `cmd/lab/menu*.go`、`provider.go` |
 
-「客戶」先是依現有 customer ID 彙整的管理檢視，不宣稱已經具備完整 CRM 或 billing account 模型。beneficiary、customer 與 legacy account 的區別在遷移頁清楚標出。
+"Customers" are the first to look at the existing customer ID, not claiming to have a complete CRM or billing account model. The difference between the beneficiary, the customer and the legacy account is clearly marked on the migration page.
 
-## 4. 頁面與互動設計
+## 4. Page design and interaction
 
-### 客戶／訂閱工作台
+### Customer/subscription workshops
 
-訂閱詳情作為最常使用的工作台：
+Subscribe details as the most commonly used workstation:
 
 ```text
-本機實驗室｜模擬時間／實際時間｜最近更新｜操作者
-客戶 > 訂閱 sub_…                   [建立變更] [取消／恢復]
-方案 Pro v1 · 5 席 · USD · revision 12
+Local lab | simulated time / real time | last updated | operator
+Customer > Subscription sub_…       [Create change] [Cancel / restore]
+Plan Pro v1 · 5 seats · USD · revision 12
 
-帳務：已付清    付款：已確認    服務：啟用    下期：預計 Pro v2
+Billing: paid    Payment: confirmed    Service: active    Next period: Pro v2 expected
 
-[概覽] [帳期與帳單] [付款／退款] [用量] [權益來源] [操作紀錄]
+[Overview] [Periods and invoices] [Payments / refunds] [Usage] [Entitlement sources] [Activity]
 
-當期 09/01–10/01                  待處理
-實際使用價格與席次                1 筆付款待查證 → 查看
-已收／剩餘應付／可用 credit       權益來源 revision 11，訂閱 12 → 查看
+Current period 09/01–10/01           Pending
+Applied price and seats              1 payment awaiting verification → View
+Paid / outstanding / available credit  Entitlement source revision 11, subscription 12 → View
 
-時間軸：命令受理 → 帳單核定 → 付款觀測 → 權益更新
+Timeline: command accepted → invoice finalized → payment observed → entitlement updated
 ```
 
-帳務、付款、服務及下期意圖分開顯示，不合併成一個容易誤解的「成功」。時間軸顯示各系統記錄時間與來源，不把顯示順序當成分散式因果順序。
+Separate accounts, payments, services and future intentions show that they are not merged into an easily misunderstood "success". The timesheet shows the time and source of the system, not the order of the constituent form factor.
 
-桌面以約 224px 側欄、主內容及詳情抽屜呈現；表格支援搜尋、篩選、排序與分頁。抽屜只負責查看，複雜變更使用完整頁面或分步表單。URL 保存篩選及分頁位置，回上一頁不丟失工作上下文。窄螢幕保留主要資訊，複雜金額表格可水平捲動。
+The table is presented in a 224px sidebar, with the main content and details drawn; Forms support search, filtering, ranking and page segregation. The drawer is only responsible for viewing and making complex changes using a full page or step sheet. The URLs save the location of the filter and the split page, and return to the previous page without losing the context. The narrow screen retains the main information and the complex amount table can be rolled horizontally.
 
-### 操作流程
+### Operating process
 
-1. **選擇對象與意圖**：從訂閱或發票頁開始，自動帶入對象；明示操作範圍。
-2. **輸入與預覽**：顯示來源版本、目前／變更後席次、金額分解、生效時間、影響權益及不可執行原因。
-3. **確認與提交**：金額或寫入者切換需要明確確認；輸入原因。一般讀取與重新整理不增加確認步驟。
-4. **追蹤結果**：顯示命令受理、付款處理、領域完成、權益投影與修復驗證等不同階段；可離開頁面後再回來追蹤。
+1. ** Select objects and intentions**: automatically introduce objects starting from the subscription or invoice page; Explain the scope of the operation.
+2. **Input and preview**: Displays the source version, current/changed seats, breakdown of amounts, time of effect, effects on entitlement and reasons why it cannot run.
+3. ** Confirmation and submission**: The amount or the subscriber's change needs to be explicitly confirmed; The reason for the input. In general, reading and refreshing do not add to the confirmation steps.
+4. ** Tracking results**: Displays different stages of command acceptance, payment processing, domain completion, entitlement projection and repair verification; It's easy to leave the page and go back and track it.
 
-預覽不是保留額度，也不是執行成功。伺服器在實際命令交易內重新核對 revision、價格、席次、期限及額度。前端不計算權威金額，不靠隱藏按鈕維持不變條件。
+Preview is not a reservation, nor is it a successful run. The server re-verifies the revision, price, seats, deadlines and limits in the actual command transaction. The front end does not calculate the amount of authority, and does not maintain the condition by hiding the button.
 
-### 報價及期中升級
+### Offers and mid-term upgrades
 
-報價同時顯示「現在應付」「下一整期固定承諾」「用量費率」「稅務未支援」。排程變更現在應付為 0。期中升級沿用 `due_now_estimated=true`，明示估算時刻與「提交時重新計算」。實際受理後以 `pending_amount_minor` 顯示付款義務，不能把預覽金額複製為收款依據。
+The offerings also show "Now dealt with", "Fixed Commitments for the next full term", "Use Rate", "Tax unsupported". Schedule changes are now dealt with at 0. Medium-period upgrades along the `due_now_estimated=true`, specifying the estimated timing with "re-computing when submitted". After actual receipt, the payment obligation is displayed with `pending_amount_minor` and no copy of the preview amount can be used as a receipt basis.
 
-新增管理用的確認預覽，回傳帶期限、操作者／對象／操作／request hash 的不透明 token；token 指向伺服器保存的資料，不能由瀏覽器自行改寫。金額敏感命令須有預覽版本與金額界限：執行時計算超過已確認金額，或變更影響範圍，回 `409 PREVIEW_STALE` 並要求重看。這是新增工作，現有 `v1` 尚未提供此保證。
+Add a confirmation preview for admin, a forwarding timeframe, an opaque token of the operator/object/operation/request hash; The token refers to the data stored on the server and cannot be rewritten by the browser itself. The quantity-sensitive command must have a preview version with the quantity limit: when running the calculation exceeds the confirmed quantity, or the range of changes affected, go to `409 PREVIEW_STALE` and request a review. This is an add-on, and the existing `v1` has not yet offered this guarantee.
 
-期中升級若重算金額下降，允許在已確認上限內執行，結果列出估值與實際金額；上升則重新確認。退款及 credit 應用的明確金額不可自動替換。此政策是本提案的管理端決策，需在實作測試中固定。
+A mid-term upgrade, if the recalculation amount decreases, allows operations within the established ceiling, which results in a listing of the valuation and the actual amount; Ascension is confirmed again. The specified amount of refund and credit application cannot be automatically replaced. This policy is a management decision of this proposal and needs to be fixed in practical testing.
 
-### 例外狀態
+### State of exception
 
-| 情況 | 畫面與可執行行為 |
+|The situation.|It's a great way to get a feel for the images and the behaviour.|
 | --- | --- |
-| 付款／退款 UNKNOWN | 顯示「結果待查證」、原操作與最後觀測時間；提供原 key 查詢，不提供新增同一義務的盲目重送 |
-| 確定失敗 | 顯示原因；只有領域允許時開放重試，保留新舊嘗試關係 |
-| revision 衝突 | 保留表單意圖、載入最新資料、顯示差異、重新預覽；不自動改 revision 再送出 |
-| 報價過期或 catalog 改變 | 顯示原價／新價與原因，重新建立報價；不延長原報價 |
-| 權益投影落後 | 分開顯示訂閱 revision 與權益來源 revision，標「同步中」並提供有權限的修復入口 |
-| Net30 | 顯示「已開通／尚未付款／到期日」；零元現在應付不代表整份合約免費 |
-| 已發布價格 | 唯讀；以「建立下一版本」操作，不出現編輯既有金額按鈕 |
-| 價格遷移部分衝突 | 顯示逐戶狀態與原因；暫停阻止後續項目，不撤銷已生效項目 |
-| 高風險對帳差異 | 展示證據與 expected／actual，記錄人工決議；人工決議本身不等於資金已修正 |
-| 帳戶切寫後停止 | 顯示實際 read／writer owner 和停止範圍；停止不自動把 writer 切回 legacy |
-| 網路逾時或頁面重整 | 查詢既有 command ID 或原 request key，恢復進度；不產生另一個金融意圖 |
+|Payment/Return Unknown|Displays "results pending verification", the initial operation and the last observed time; It provides the original key for search and does not provide a blind return of the same obligation.|
+|Identifying Failure|the reasons for this; Only open retry when allowed by the domain and retain the old and new attempted relationship.|
+|revision Conflict|Keep the intent of the form, upload the latest data, display the differences, re-preview; It doesn't automatically change the revision and send it out.|
+|Offer expires or catalog changes.|Show the original/new price and the reason for the re-creation of the offer; No renewal of the original offer|
+|Right now, we're looking at a new way of doing things.|Separately display subscription revision with entitlement source revision, mark "in sync" and provide authorized repair input.|
+| Net30 |Displays "Opened/not paid/expired date"; Zero now doesn't mean the whole contract is free.|
+|The price has been announced.|It's just reading. The "Create the Next Version" operation does not show the editing of the existing amount button.|
+| Partial price-migration conflict | Show each account’s status and reason. Pausing stops later items but does not undo items already applied. |
+|High-risk reconciliation differences|Demonstrate evidence with expected/actual, recording artificial resolutions; The artificial resolution itself is not the same as the funds being amended.|
+|After the account is deleted, stop.|Displays the actual read/writer owner and stop range; Stop not automatically cutting writer back to legacy.|
+|The web is outdated or the page is redesigned.|Search for an existing command ID or original request key to restore progress; It's not about the financial intentions.|
 
-狀態使用文字、圖示與顏色共同表示。表單需有鍵盤操作、明確標籤與欄位錯誤；確認框回復焦點。金額顯示幣別與格式化值，展開可看原始 minor units；rational 用量費率保持分子／分母，不以浮點近似值作運算。
+The state is represented by text, symbols and colors. The form must have a keyboard operation, clearly label and field errors; Confirmation boxes respond to the focus. The quantity shows the denomination of the currency as opposed to the formatted value, showing the original minor units visible; The rational use rate maintains the molecular/separator, not using floating point approximation.
 
-## 5. 技術架構
+## 5. Technical architecture
 
-採用已確認的 React＋TypeScript＋Vite，以 Ant Design 統一頁面骨架、表格、表單、對話框、訊息與狀態元件；使用 TanStack Query 管理讀取快取與背景更新，React Router 管理路由，Zod 驗證 API 資料與輸入格式。表單採 Ant Design Form，不再並用 React Hook Form 或 Radix UI。主題、元件邊界與金融操作限制見工程契約。Go 仍是唯一業務後端，SQLite 仍是本機資料來源。
+Using the confirmed React+TypeScript+Vite, Ant Design unifies the page structure, forms, forms, dialog boxes, messages and status components; Use TanStack Query to read cache and background updates, react routers to manage routes, and Zod to verify API data and input formats. The form is Ant Design Form, and no longer combines with React Hook Form or Radix UI. Subject, component boundaries and financial operations restrictions see engineering contract. Go is still the only business backend, while SQLite is still the native data source.
 
 ```mermaid
 flowchart LR
-    U[Web Admin] -->|同源 session| H[Go Admin HTTP]
-    H --> Q[管理查詢 DTO]
-    H --> C[管理命令與授權]
-    C --> L[既有 Lab 領域服務]
+    U[Web Admin] -->|same-origin session| H[Go Admin HTTP]
+    H --> Q[Admin query DTO]
+    H --> C[Admin commands and authorization]
+    C --> L[Existing Lab domain services]
     CLI[CLI] --> L
-    V1[既有 v1 API] --> L
+    V1[Existing v1 API] --> L
     L --> DB[(Commerce SQLite)]
     L --> P[Fake provider]
     Q --> DB
-    C --> A[命令與稽核紀錄]
+    C --> A[Command and audit records]
 ```
 
-前端原始碼放 `web/admin/`；新增管理 handler 放 `api/admin/`；管理查詢與命令交易協調放 `lab/admin_*.go`，重用領域 transaction helpers，避免另建第二套業務規則或循環依賴。
+The front end source code is `web/admin/`; Add a management handler to place `api/admin/`; Manage to find and coordinate transaction with command to place `lab/admin_*.go`, reuse area transaction helpers, to avoid rebuilding a second set of business rules or loop dependencies.
 
-開發時 Vite proxy 到 Go；本機交付時將建置產物嵌入 Go binary，同一 origin 提供 `/admin/` 與 `/admin/api/`。保留現有 `serve` 命令相容性，新增獨立 `admin` 命令；管理 listener 不掛載未受管理授權的 v1 路由，目前尚無此命令。純 API build 不應因缺少前端 dist 而無法編譯。
+Vite proxy to Go while developing; When delivered, the product will be built into the Go binary, with the same origin provided by `/admin/` and `/admin/api/`. Maintain the compatibility of existing `serve` commands and add independent `admin` commands; Manage listener does not include unauthorized v1 routing, and this command is not available at this time. Pure API builds should not be compileable due to lack of front-end dist.
 
-第一版採輪詢工作進度與手動重新整理，保留最後觀測時間；無需先建立 WebSocket 系統。可見頁面輪詢，切換頁面時取消不用的請求。命令成功後只失效相關快取；金融寫入不使用樂觀更新假裝成功。
+The progress of the first edition of the survey was updated manually, with the last observation time reserved; You don't need to create a WebSocket system first. See page queries and cancel unused requests when switching pages. The commands are not available until after the command has been executed. Financial writing is not optimistic and updates pretend to be successful.
 
-## 6. 管理 API 與命令契約
+## 6. Manage API and command contracts
 
-以下均為**擬新增的管理路由**，不是宣稱現有 v1 已具備。表內省略重複的 `/admin/api` 前綴。前端使用管理層 session，管理 handler 直接呼叫領域服務，不透過瀏覽器持有內部 API token。
+The following are all the management routes to be added, not to claim that an existing v1 already exists. The `/admin/api` forecast is omitted in the table. The front end uses the administration session, managing the handler to call the domain services directly, without holding an internal API token through the browser.
 
-| API 群組 | 擬提供讀取 | 擬提供命令 |
+|The API group|Readings will be provided.|It's about giving commands.|
 | --- | --- | --- |
-| `/admin/api/overview`、`/customers`、`/subscriptions` | 分頁列表、搜尋、訂閱 detail 與 timeline | quotes、accept、schedule、cancel、resume、immediate-upgrade |
-| `/invoices`、`/credits` | 帳單來源、餘額、credit 分配與退款額度 | reduction、apply-credit、late-activation-correction、unfulfilled-change-resolution |
-| `/payments`、`/refunds` | 義務、嘗試、未知狀態、保留額度與結果 | create、retry-failed、dispatch、reconcile、reserve-refund |
-| `/prices`、`/meters`、`/catalog-selections` | 元件、checksum、選價與歷史 | publish-price、register-meter、select-catalog-price |
-| `/price-migrations` | 預覽、批次、逐戶進度與衝突 | plan、pause、skip-item、resume |
-| `/usage-events`、`/usage-periods` | 事件、rating、晚到差額與 credit note | record、adjust、close、rerate、post-credit-notes |
-| `/contracts` | 條款、到期、後續價與收款狀態 | publish、quote、accept、collect-due |
-| `/reconciliation-runs`、`/discrepancies` | run、證據、修復前後結果 | run、repair、record-manual-decision |
-| `/account-migrations` | 映射、來源、shadow、門檻、擁有者、adapter view | link、shadow、backfill、resolve-provenance、switch-read、switch-writer、stop |
-| `/commands`、`/jobs` | 命令回應、可追蹤工作與復原狀態 | run-renewals、refresh-entitlements、受控工作執行 |
-| `/lab` | server clock、fake provider 的隔離狀態 | set-clock、set-provider-decision、inject-supported-fault |
+| `/admin/api/overview`、`/customers`、`/subscriptions` |This is a list of pages, searches, subscription details and timelines.| quotes、accept、schedule、cancel、resume、immediate-upgrade |
+| `/invoices`、`/credits` |Source of bills, balance, credit allocation and refunds| reduction、apply-credit、late-activation-correction、unfulfilled-change-resolution |
+| `/payments`、`/refunds` |Obligations, attempts, unknowns, reservations and results| create、retry-failed、dispatch、reconcile、reserve-refund |
+| `/prices`、`/meters`、`/catalog-selections` |Components, checksum, catalog selection and history| publish-price、register-meter、select-catalog-price |
+| `/price-migrations` |Preview, batches, progress and conflicts per household| plan、pause、skip-item、resume |
+| `/usage-events`、`/usage-periods` |Events, ratings, delays and credit notes| record、adjust、close、rerate、post-credit-notes |
+| `/contracts` |Terms, expiration, retention price and receipt status| publish、quote、accept、collect-due |
+| `/reconciliation-runs`、`/discrepancies` |Run, proof, repair before and after the results.| run、repair、record-manual-decision |
+| `/account-migrations` |Map, source, shadow, threshold, owner, adapter view| link、shadow、backfill、resolve-provenance、switch-read、switch-writer、stop |
+| `/commands`、`/jobs` |Command response, traceable work and recovery status|Run-renewals, refresh-entitlements, run-controlled work|
+| `/lab` |The server clock, the isolated state of the fake provider.| set-clock、set-provider-decision、inject-supported-fault |
 
-每個 mutation 定義專用 payload 與端點，例如 `POST /admin/api/subscriptions/{id}/cancel`；不接受任意函式名稱或 SQL。完整 OpenAPI 應與實作一起維護。
+Each mutation defines a dedicated payload and endpoint, such as `POST /admin/api/subscriptions/{id}/cancel`; Do not accept any arbitrary function name or SQL. The full OpenAPI should be maintained along with the implementation.
 
-**讀取契約**：cursor 分頁、有界 limit、穩定排序、允許欄位的篩選、`as_of` 與適用的 `source_revision`。列表只顯示必要資訊；原 provider key 等診斷欄位以權限控制。跨頁總覽是有觀測時間的摘要，不宣稱與所有後續 detail 讀取共用同一 snapshot。
+** Read the contract**: cursor section, boundary limit, stable ordering, allowing field selection, `as_of` and applicable `source_revision`. The list shows only the necessary information; The original provider key is a diagnostic field controlled by authorization. A cross-page overview is a summary of the observed time, not claiming to share the same snapshot with all subsequent details.
 
-**命令契約**：對象 ID、typed payload、原因、`Idempotency-Key`、適用的 expected revision 與 preview token。actor 從 session 取得，不能相信瀏覽器自報的 actor ID。金額仍使用整數 minor units；跨 JS 安全整數範圍時用十進位字串傳送。新 Admin DTO 可以先一致使用字串，無需改動既有 v1。
+**Command pact**: Object ID, typeed payload, cause, `Idempotency-Key`, expected revision and preview token applicable. actor from the session, cannot trust the browser's actor ID. The amount is still used for the total minor units; It is sent in ten-digit strings across the JS security integer range. The new Admin DTO can use the same string without changing the existing v1.
 
-新增持久化 `admin_commands`：command ID、actor、kind、target、request key、payload hash、預覽版本、狀態、結果引用、error code、建立／更新時間。request key 以 actor 與命令 scope 定義唯一性；相同 key 不同 payload 回衝突。命令查詢也要有物件與角色授權。
+Added `admin_commands`: command ID, actor, type, target, request key, payload hash, preview version, state, result reference, error code, time of creation/updating. The request key defines uniqueness as actor and command scope; The same key, different payload, conflict. The command search also has object and character authorization.
 
-短命令可直接完成並回傳結果引用；可中斷／長時間工作回 `202` 與 command ID。HTTP 受理成功、命令已完成、付款已確認、服務已開通是不同的狀態。命令狀態至少有 `accepted/running/succeeded/failed/waiting_verification`；無法判定時不能寫成一般失敗並放行新嘗試。
+Shortcommands can be executed directly and retransmitted as a result of a reference; Interruptible/long working back to `202` with command ID. HTTP receipt is successful, commands are completed, payment is confirmed, service is open in different states. The command status is at least `accepted/running/succeeded/failed/waiting_verification`; It is impossible to write a general failure when it cannot be judged and to put new attempts into practice.
 
-**交易與復原是新增工程工作**：現有領域方法自行開 transaction，且 `Lab` 限制資料庫連線數；管理 wrapper 不可先持有 transaction 再呼叫它們。要在領域交易內與業務事實一起記錄 command receipt／audit；provider side effect 另走既有 outbox／operation key 並依原操作查證。每條路徑要處理「業務提交成功、命令紀錄尚未更新」的中斷，再由業務鍵查回既有結果。對原本缺少 request key 的批次工作，需補 job 身分與逐項冪等性，不能只加一張管理命令表就宣稱保證了重播。
+** Transaction and Restore are Add-On Engineering**: Existing field methods start transactions on their own and `Lab` limits the number of database connections; The wrapper manager must not first hold the transaction and then call it. To record command receipt/audit with business facts in field transactions; The provider side effect is also available with an outbox/operation key and verification based on the original operation. Each path is to deal with interruptions of "business submitted successfully, command records not updated" and then to check the results with the business key. For the batch of work that was missing the request key, it is necessary to replenish the job identity and individual idempotentity, and it is not possible to add only one management command sheet to claim to guarantee rebroadcasting.
 
-## 7. 權限、稽核與實驗室隔離
+## 7. Authorisation, auditing and isolation of laboratories
 
-本機版預設一名完整權限操作者，但所有管理 API 仍經同一 permission middleware；可用 `BILLFORGE_ADMIN_CAPABILITIES` 將該帳號限制為明列的能力，不需先開發帳號管理產品。從 `.env` 載入 `BILLFORGE_ADMIN_USERNAME`、`BILLFORGE_ADMIN_PASSWORD`，提供 `/admin/login` 帳密登入並建立伺服器 session；session cookie 使用 HttpOnly、SameSite，正式 HTTPS 時使用 Secure。寫入核對 Origin／CSRF，內部 token 不交給瀏覽器。僅綁 loopback 本身不足以防止其他網站觸發本機請求。
+The web version lacks a fully authorized operator, but all management APIs are still using the same permission middleware; `BILLFORGE_ADMIN_CAPABILITIES` can be used to limit the ability of the account to a multi-column without the need to develop an account management product. From `.env` upload `BILLFORGE_ADMIN_USERNAME`、`BILLFORGE_ADMIN_PASSWORD`, to log in and create a server session to `/admin/login`; The session cookie uses HttpOnly, SameSite, and Secure when it is officially HTTPS. Origin/CSRF authentication is written and the internal token is not delivered to the browser. Linking loopbacks alone is not enough to prevent other websites from triggering native requests.
 
-權限按 capability 定義：`read`、`subscription.manage`、`finance.adjust`、`catalog.publish`、`migration.manage`、`reconciliation.repair`、`operations.run`、`usage.manage`、`contract.manage`、`lab.control`。日後再組合成 support、finance、catalog admin 等角色；前端能力顯示與後端執行檢查同源。跨操作者及跨物件存取要有拒絕測試。
+Authorisation by capability:`read`、`subscription.manage`、`finance.adjust`、`catalog.publish`、`migration.manage`、`reconciliation.repair`、`operations.run`、`usage.manage`、`contract.manage`、`lab.control`In addition to the support, finance, and catalog admin roles, it is also possible to combine the following roles: The front end capability is displayed with the rear end running check source synchronization. Cross-operator and cross-object access shall include denial of testing.
 
-每次金融／批次命令保存 actor、reason、request ID、對象、來源版本、影響金額與結果引用。不可把完整憑證或敏感 provider payload 存進普通操作紀錄。現有領域 audit 尚不能直接當成完整的管理人員稽核軌跡；需要補充欄位及交易連結。
+Each financial/batch command keeps actor, reason, request ID, object, source version, amount of impact and result citation. No complete credentials or sensitive provider payload should be stored in normal operating records. The audit of existing areas cannot be directly considered as a complete management audit trail; It is necessary to add fields and transaction links.
 
-實驗室功能由 server 設定及 capability 同時控制，頁首永久顯示環境與時鐘；設定只影響指定本機環境，不在一般付款表單混入故障選項。改時間前顯示將影響的報價期限／帳期；調整時與執行中的命令協調，禁止同一命令在前後使用兩個模擬時刻。時間前進不偷偷執行收款；由操作者再觸發到期工作。
+Laboratory functionality is controlled simultaneously by server settings and capability, with the page brows permanently displaying the environment and clock; The settings only affect the specified native environment and are not included in the default options on the general payment form. the bid/billing period that will be affected before the change of time; Coordination with the running command when adjusting, prohibiting the same command from using two simulation moments before and after. The Commission shall adopt a decision on the implementation of the measures provided for in this Regulation. The operator triggers the expired work.
 
-## 8. 實作順序與驗收
+## 8. Operational order and acceptance
 
-| 階段 | 交付 | 退出條件 |
+|Stages|Delivery|Exit conditions|
 | --- | --- | --- |
-| W1 管理基礎與讀取 | 同源前端、session、權限、分頁 API、總覽、訂閱／發票詳情、共用狀態元件 | 在既有 fixture 正確呈現 paid、UNKNOWN、grace、Net30、投影落後；未授權 API 拒絕；舊 CLI／v1 回歸通過 |
-| W2 訂閱工作流 | 新購、報價、排程、取消、恢復、期中升級、命令追蹤與預覽 | 報價席次／價格／revision 釘選；過期與陳舊預覽拒絕；重新整理後找回同一命令 |
-| W3 金融與營運 | 付款、退款、credit、更正、續約、權益工作、對帳與人工決議 | 金額來源可追查；UNKNOWN 查原操作；重播不重複保留／付款；修復後有再核對結果 |
-| W4 產品與計費平台 | 價格／meter、cohort、用量、合約、價格遷移 | 已發布價唯讀；晚到用量有新 rating 與差額；Net30 到期行為；遷移部分衝突不誤報全成功 |
-| W5 帳戶遷移與實驗室 | 所有 P03 操作、模擬時鐘、fake provider 故障與狀態 | 不符合準備度無法切寫；停止範圍清楚；故障後仍能查證原操作；覆蓋表全部入口完成 |
+|W1 Management Basics and Reading|The same source front end, session, permissions, split-page API, overview, subscription/invoice details, shared status components|If the fixture is correctly paid, unknown, grace, Net30, the projection is delayed; Unlicensed API refusal; The old CLI/v1 regression was passed.|
+|W2 subscription workflow|New purchases, offers, schedules, cancellations, restorations, mid-term upgrades, command tracking and previews|Seat/price/revision quotes are selected; Rejection of expiration and antiquated preview; Refreshing retrieves the same command.|
+|W3 Finance and Operations|Payments, withdrawals, credits, corrections, renewals, entitlement work, reconciliation and artificial resolutions|The source of the amount can be traced; Unknown source operation; No repeat reservations/payments; I've seen the results of the repair and re-check.|
+|W4 products and billing platform|Price/meter, cohort, quantity, contract, price migration|It's read-only. Late-to-use new ratings and differences; Net30 expiry behavior; Some of the migration conflicts have not been misreported as successful.|
+|W5 accounts migrated to the lab.|All P03 operations, simulated clocks, fake provider failures and status.|It is not possible to cut off the preparation; The scope of the stop is clear; the original operation can still be verified after failure; All the entrances are complete.|
 
-以 Go domain tests 繼續驗證金額與交易規則；新增 HTTP contract tests 驗證授權、payload、錯誤、分頁、preview 與命令重播。Playwright 走真實本機 Go server、獨立暫存 SQLite 與 fake provider，驗證可見操作結果，避免只 mock 成功回應。
+Go domain tests continue to verify the amounts and trading rules; Add HTTP contract tests to verify permissions, payloads, errors, split pages, previews and command replay. Playwright runs the real-world Go server, independently temporarily storing SQLite with the fake provider, verifying the visible results of the operation, and avoiding mocking the successful response.
 
-至少實際驗收以下完整流程：
+At the very least, the following complete process is actually validated:
 
-- 新購 → 遺失付款回應 → UI 顯示待查證 → 原 key 查證 → 權益開通，只有一筆成功 capture。
-- 下期排程與期中升級分別顯示正確應付時點；另一個操作者先改 revision 後，舊預覽拒絕且不產生帳單／付款。
-- 減額更正 → funded credit → 套用部分／保留退款 → 退款 UNKNOWN → 查證，保留與可用額度正確且可回溯。
-- 用量事件 → 關帳 → 晚到／撤銷 → 重算 → 正差額或 CreditNote，歷史 rating 保留。
-- 價格遷移包含正常戶、衝突戶、暫停／恢復；已處理戶不因重播再次遷移。
-- Net30 接受後先開通，收款只在到期時入列；缺少後續價時顯示 hold。
-- 對帳發現差異 → 修復預覽 → revision 改變拒絕 → 重新核對後處理，結果提供證據與驗證 run。
-- 帳戶 shadow／來源回填 → readiness → 切讀 → 切寫 → 停止；確認只有指定 writer 可接受新命令。
-- 在「命令受理後」「業務 commit 後、管理回應前」中斷 server，再啟動或重新整理，找回同一結果且沒有第二筆金融義務。
+- New purchases → Lost payment responses → UI showing for verification → Original key verification → entitlement open, only one successful capture.
+- The secondary schedule and the intermediate upgrade respectively show the correct response times; After the other operator modified the revision, the old preview was rejected and no bills/payments were generated.
+- Reduction correction → funded credit → Subscription part/Return of refund → Return UNKNOWN → Verification, retention and availability of the available amount are correct and traceable.
+- Usage events → Closed accounts → Late to/Canceled → Recalculation → Correct difference or CreditNote, historical rating retained.
+- The price migration includes normal households, conflict households, suspension/restore; It has been dealt with that the user will not be relocated again due to rebroadcasts.
+- Net30 is open after acceptance and receipts are listed only when they expire. Holds are displayed when there is no follow-up price.
+- reconciliation discovery of differences → correction preview → revision change rejection → re-verification after processing, the results provide evidence and verification run.
+- Account shadow/source replenishment → readiness → deleting → deleting → stopping; Confirm that only the specified writer can accept the new command.
+- After "command acceptance" and "business commits", before administering the response, the server is interrupted, restarted or refreshed, returning the same result without a second financial obligation.
 
-初版不以營收成長報表當驗收目標。總覽先呈現可靠的營運待辦；若之後新增 MRR／ARR，另定義合約、退款、更正、用量與認列口徑，再建立報表。
+The first edition did not report revenue growth as the acceptance goal. The first is to provide a reliable operational framework; If MRR/ARR is added, the contract, refund, correction, volume and quality are altered, and the report is created.
 
-## 9. 設計完成與實作交接
+## 9. Design completion and interaction
 
-本文件完成了導覽、全 CLI 能力對照、主要畫面、金額／狀態互動、後端缺口、管理端權限、分階段交付與驗收標準。下一步實作從 W1 開始，最終仍需完成 W1–W5 才能稱 Web Admin 完成。
+This document completes the directions, the full CLI capability control, the main images, the amount/state interactions, the back end gaps, the management end permissions, the delivery and acceptance standards in stages. The next step is to start with W1 and eventually complete W1 and W5 before Web Admin can be called.
 
-價格／付款政策以既有 A–D 與實作文件為準。新的預覽金額上限、管理 session、命令持久化及稽核要求在本文標為新增設計；不得把本文件當成這些功能已存在的證據。
+The price/payment policy is based on both AD and practical documentation. New preview limit, session management, command persistence and auditing requirements are designed to be added to this template; This document should not be considered as evidence that these functions already exist.
 
-完整工程與執行交接：[06 工程契約](06-web-admin-contracts.md)、[07 實作計畫](07-web-admin-implementation-plan.md)、[08 驗收計畫](08-web-admin-test-plan.md)。此輪停留在設計與規劃，尚未啟動 W1 或建立實際帳密。
+Complete engineering and operation interfaces: [06 Engineering contract](06-web-admin-contracts.md), [07 Plans for action](07-web-admin-implementation-plan.md), [08 Acceptance Scheme](08-web-admin-test-plan.md). The wheel is still in design and planning, and has not yet started W1 or created an actual tent seal.

@@ -1,33 +1,36 @@
-# Web Admin 實作計畫
+# Web Admin Implementation Plan
 
-狀態：設計與實作規劃完成；**功能實作進行中**。使用者已確認 React 與 Ant Design，並已授權依計畫完成實作。下方 checkbox 需在完整驗收後才勾選，不能把局部實作視為整項任務通過。
+**English** | [繁體中文](07-web-admin-implementation-plan.zh-TW.md) | [简体中文](07-web-admin-implementation-plan.zh-CN.md)
 
-上位文件：[功能設計](05-web-admin.md)、[工程契約](06-web-admin-contracts.md)、[驗收計畫](08-web-admin-test-plan.md)。[JSONL](web-admin-tasks.jsonl) 保留原始任務估算與依賴，當前驗收狀態以[實作紀錄](../implementation/web-admin.md)為準。
 
-目前已可使用的切片：本機 `.env` 管理帳密登入、session／CSRF、React＋Ant Design 頁面、分頁列表、資源詳情、概覽，以及 C01–C49 的命令入口。訂閱、帳單、對帳與帳戶遷移均有可追來源的詳情頁；批次進度、命令恢復及本機 fake provider 故障也可操作。主要成功路徑與部分錯誤路徑已有 Go 和瀏覽器證據；**A01–A30 的完整逐項驗收仍未完成**，最新結果見[實作紀錄](../implementation/web-admin.md)。
+Status: Design and implementation planning completed; ** Functional operation is underway**** The user has confirmed React and Ant Design and authorized the implementation according to the plan. The following checkbox must be selected after full acceptance and cannot be used as a complete task.
 
-## 1. 工程審查結論
+The following documents are available: [Functional design](05-web-admin.md), [Project contract](06-web-admin-contracts.md), [Acceptance Scheme](08-web-admin-test-plan.md). [JSONL](web-admin-tasks.jsonl) maintains the original task estimates and dependencies, and the current acceptance status is assigned to [Record performance](../implementation/web-admin.md).
 
-前一版有完整功能方向，但不足以直接開工。此次完成 architecture、code quality、testing、performance 四個面向的設計審查；沒有執行實作、安裝前端依賴、啟動新服務或部署。
+Currently available snippets: native `.env` admin log in, session/CSRF, React+Ant Design page, split list, resource details, overview, and command input for C01 and C49. Subscriptions, accounts, reconciliation and account migrations have traceable source details; Batch progress, command recovery and local fake provider failures are also available. The main success paths and some erroneous paths already have Go and browser proof; **A01 and A30 are not yet fully accepted**, see [Record performance](../implementation/web-admin.md) for the latest results.
 
-| 發現 | 目前證據／缺口 | 已選方案 |
+## 1. Conclusions of engineering review
+
+The previous version had full functionality, but not enough to run directly. The four-dimensional design review of architecture, code quality, testing, performance was completed. There is no operation, no dependency on front end installation, no launch of new services or deployment.
+
+|I found it.|Current evidence/gap|Selected Programs|
 | --- | --- | --- |
-| F01 管理讀取缺口 | `api/v1.go` 路由有限；`lab/inspect.go` 的 State 一次返回全量 | 新增有界、穩定排序、來源可追查的管理 DTO，不把 State 全量轉 JSON |
-| F02 管理權限繞過 | 現有 `serve` 提供本機 v1，僅內部操作帶 token | 新 `admin` server 專用 session 路由；不掛載未受管理授權的 v1 |
-| F03 寫入與 command 不原子 | 領域方法自行 BeginTx，`Lab` 限制單連線；外層 wrapper 會死鎖或分離提交 | 抽 Tx helpers，command receipt 與本地業務 commit 同 transaction |
-| F04 預覽非承諾 | quote 席次／revision 已有保護，但沒有通用管理 preview 或確認金額上限 | 持久化 preview、執行再核對、精確金額／上限政策，且先處理冪等重播 |
-| F05 尚無管理工作恢復 | outbox 與 provider key 已存在，但沒有管理 actor、command/job receipts | 加入 command、lease generation、job membership、逐項結果及 restart recovery |
-| F06 next item 可能漂移 | `DispatchRefundNext`、部分 Run* 方法自行找下一筆或掃描全部 | by-ID dispatcher／逐項 helper；preview 固定 membership，避免執行新進對象 |
-| F07 時鐘與故障是 CLI 局部能力 | menu clock 與 server wall clock 不同；已有兩種故障模式 | 固定每命令 business time，session／lease 保持 wall clock；fault ticket 按 operation 隔離 |
-| F08 前端呈現責任未固定 | 還沒有 React 專案、共用狀態元件、精確金額 DTO | 確定前端套件分工、decimal string、狀態與 stale/error 行為 |
-| F09 UI 能力無逐項驗收 | 只有 CLI／domain/API 既有測試 | 為 C01–C49 建立 HTTP 行為矩陣與真實本機 browser 情境 |
-| F10 build／升級未定義 | 現有純 Go 專案、既有 SQLite 檔案 | adminui build tag、保留無 dist 的 Go build、增量 schema＋舊 DB fixture 驗證 |
+|F01 Manage reading gaps|`api/v1.go` routing is limited; `lab/inspect.go` State returns the full quantity at once.|Add boundaries, stable sequences, traceable source management DTOs, and do not convert the entire JSON to State.|
+|F02 Management Authorisation bypassed|The existing `serve` offers native v1 tokens, only internally operated.|The new `admin` server has dedicated session routing; Unattended unmanaged v1|
+|F03 is written with command non-atomic.|The field method itself BeginTx, `Lab` restricts single connections; The outer wrapper will be locked or separated.|Draws Tx helpers, command receipt and local business commit and transaction|
+|F04 preview Not committed|Quote Seats/revision Protected but without a general management preview or confirmation amount limit|Perpetuate preview, run re-checks, accurate amounts/limits policies, and first process idempotent rebroadcasts|
+|F05 has not yet resumed management work.|Outbox and the provider key already exist but do not manage actor, command/job receipts|Add command, lease generation, job membership, results and restart recovery|
+|F06 next item may drift.|`DispatchRefundNext`, part Run* method to find the next one or scan it all.|By-ID dispatcher/ individual helper; Preview Fixed membership to avoid running new entries|
+|The F07 clock and the failure are CLI local capabilities.|menu clock is different from server wall clock; There are two types of failure patterns.|Fixing business time, session/lease and keeping a wall clock for each command; fault ticket separated by operation|
+|F08 front-end liability unfixed|There are no React projects, shared state components, or DTOs yet.|Determine the workload of the front-end suite, decimal strings, status and stale/error behavior.|
+|F09 UI capabilities are not accepted on a case-by-case basis|The only test available is CLI/domain/API.|For C01 and C49, create an HTTP behavior matrix with real-world browser settings.|
+|F10 build/upgrade not defined|There are pure Go projects, there are SQLite files.|Adminui build tag, save the distless Go build, add schema + old DB fixture verification|
 
-現有 `AcceptQuote`、變更命令、balance、provider key、reconciliation 與 migration guard 都重用。只有交易 helper、按 ID 工作、preview、admin persistence、查詢 DTO 與 Web 層是新增責任；不重建計價引擎。
+The `AcceptQuote`, the change command, balance, provider key, reconciliation and migration guard are all reused. Only transaction helpers, ID work, preview, admin persistence, search for DTOs and Web layers are responsible; I don't want to rebuild the engine.
 
-## 2. 任務與依賴
+## 2. Tasks and dependency
 
-每項任務都包含程式、相關測試及必要契約更新。P1＝阻擋該階段交付。此輪不把未完成能力降成日後 TODO。人工作業粗估以熟悉 Go／React 的工程師計、包含測試與審查，範圍可重疊；AI 執行時間沒有量測資料，不列虛構加速倍數。
+Each task includes procedures, related tests and necessary contract updates. P1 = blocking delivery at this stage. This round does not reduce incomplete capacity to TODO after the day. Human resources can be overlapped with the measurements of engineers familiar with Go/React, including testing and review; AI running time does not measure data, excluding fictitious acceleration multiples.
 
 ```text
 T01 → T04 → T05 → T06 → T07
@@ -36,53 +39,53 @@ T11＋T13 → T12
 T04 → T08 ────────────────────↗        ↘ T13 → T18
 T07＋T08＋T09 → T14 → T15
                  ├→ T16
-                 └→ T17（另依賴 T10、T13）
+                 └→ T17 (also depends on T10 and T13)
 T13＋T18 → T19；T06＋T07＋T09 → T20
-全部功能 T10–T20 → T21 → T22
+All features T10–T20 → T21 → T22
 ```
 
-以下路徑均為預計 ownership；同一路徑的重構串行完成，避免多個工作者同時修改交易骨架。未啟動任何 subagent、worktree 或分支。
+The following routes are all expected ownership; The same route was reconstructed in sequence, avoiding multiple workers modifying the transaction skeleton simultaneously. No subagent, worktree or branch has been activated.
 
-- [ ] **T01（P1，0.5–1 日）— 凍結契約與回歸基線。** 來源 F09/F10。檔案：`docs/design/06–08`、`lab/*_test.go`。盤點既有 S01–S12/P01–P03 fixture，建立 old-schema fixture 與 C01–C49 mapping。依賴：無。驗收：A01；既有測試結果另行保存，任何新發現的 domain 缺陷先列出，不以新 UI 掩蓋。
-- [x] **T02（P1，0.5–1 日）— 建立 React 與嵌入式 build 骨架。** 來源 F08/F10。檔案：`web/admin/`、`cmd/lab/adminassets/`、`cmd/lab/admin.go`。加 route shell、pnpm lock、TypeScript、Vite、Ant Design ConfigProvider／App 與主題 token、build tags。依賴：T01。驗收：A02；有／無 dist build、深連結刷新、資產路徑與錯誤頁都可判定。
-- [x] **T03（P1，1–2 日）— 實作 session、CSRF、權限與專用路由。** 來源 F02。檔案：`api/admin/session.go`、`permissions.go`、`router.go`、`cmd/lab/admin.go`、`.env.example`、`.gitignore`。依賴：T01。驗收：A03/A04；`.env` 缺值／格式／優先序、登入失敗限流、session 期限、Host/Origin、未授權、重啟與舊 v1 隔離。
-- [ ] **T04（P1，1–2 日）— 新增 commerce/provider 的 versioned admin schema 與升級。** 來源 F05/F10。檔案：`lab/admin_schema.go`、`lab/admin_migration_test.go`。依賴：T01。驗收：A05；新庫、舊庫、重跑、失敗 rollback、financial history 不變及舊 CLI 相容。
-- [ ] **T05（P1，2–4 日）— 抽出交易 helper，保留既有 public wrapper。** 來源 F03/F06。檔案：`lab/lab.go`、`billing.go`、`corrections.go`、`refunds.go`、`subscription_changes.go`、`immediate.go`、`usage.go` 及其他寫入模組。依賴：T04。驗收：A01/A06；無 nested transaction、public 回歸、業務與 receipt 同 commit。此任務不一次改變全部金額政策。
-- [ ] **T06（P1，2–3 日）— 命令 admission、worker、receipt 與中斷恢復。** 來源 F03/F05。檔案：`lab/admin_commands.go`、`admin_worker.go`、`api/admin/commands.go`。依賴：T03/T05。驗收：A06/A07/A08；canonical hash、同 key 重播、lease generation、權限撤銷及不同 crash points。
-- [ ] **T07（P1，1–2 日）— 管理預覽與精確 API 值型別。** 來源 F04/F08。檔案：`lab/admin_previews.go`、`api/admin/types.go`、`errors.go`。依賴：T06。驗收：A09/A10；preview 單命令綁定、expiry、不同 actor、source change、金額上限、int64 邊界與結構化錯誤。
-- [ ] **T08（P1，1–2 日）— 管理查詢骨架與核心 DTO。** 來源 F01。檔案：`lab/admin_queries.go`、`api/admin/queries.go`。依賴：T04。驗收：A11；分頁與 allowlist filters、取消查詢、來源版本、去敏及新資料跨頁語意。各功能模組的查詢在對應任務補齊。
-- [ ] **T09（P1，1–2 日）— 操作台共用 UI。** 來源 F08。檔案：`web/admin/src/app/`、`components/`、`api/`。依賴：T02/T03/T08。驗收：A12；以 Ant Design Table／Form／Modal 等建立表格、時間軸、預覽、命令進度、權限與 stale/error/empty 狀態；檢查鍵盤與焦點、query invalidation、金額字串輸入及不可把一般 Popconfirm 當作金融確認流程。
-- [ ] **T10（P1，1–2 日）— 報價與訂閱全流程。** 來源 F04/F09；C01–C06（self-service/change）。檔案：`api/admin/subscriptions.go`、`lab/admin_subscription_commands.go`、`web/admin/src/features/subscriptions/`。依賴：T07/T09。驗收：A13/A14；quote 與 binding 原子、新購、下期變更、取消／恢復、即時升級、過期／revision／席次衝突。
-- [ ] **T11（P1，1–2 日）— 付款與退款操作。** 來源 F05/F06；C07–C10、C15–C17。檔案：`api/admin/payments.go`、`refunds.go`、`lab/refunds.go`、對應 frontend features。依賴：T10。驗收：A15/A16；按 ID 派送、原 key 查證、部分付款、確定失敗重試、UNKNOWN 保留、UI 不誤報成功。
-- [ ] **T12（P1，1–2 日）— 帳單更正、credit 與升級補償。** 來源 F04/F09；C11–C14。檔案：`api/admin/corrections.go`、`lab/admin_correction_commands.go`、invoice/credit features。依賴：T11/T13。驗收：A17；來源可追查、額度並行、不可重複更正、延遲／未提供服務補償與既有金額 oracle 一致。
-- [ ] **T13（P1，1–2 日）— 固定 membership 的 jobs 與營運操作。** 來源 F05/F06；C44/C45 及其他 batch 基礎。檔案：`lab/admin_jobs.go`、`api/admin/jobs.go`、jobs feature。依賴：T06/T07/T08/T09。驗收：A18；到期續約、權益刷新、逐項 receipt、部分失敗、重啟、關閉時停止 claim、membership 不漂移。
-- [ ] **T14（P1，1–2 日）— 產品、meter、價格與選價。** 來源 F04/F09；C18–C21。檔案：`api/admin/catalog.go`、catalog feature、相關 domain Tx helpers。依賴：T07/T09。驗收：A19；所有元件呈現、不可修改已發布價格、重播不重複發布、cohort 生效時點。
-- [ ] **T15（P1，1–2 日）— 價格遷移工作台。** 來源 F04/F05；C22–C25。檔案：`api/admin/price_migrations.go`、price-migrations feature。依賴：T13/T14。驗收：A20；完整預覽、固定逐戶 ID、衝突、略過、暫停／恢復與反向新批次。
-- [ ] **T16（P1，1–2 日）— 用量事件、關帳、重算與 CreditNote。** 來源 F06/F09；C26–C30。檔案：`api/admin/usage.go`、usage feature、domain usage helpers。依賴：T13/T14。驗收：A21；事件重複／內容衝突、撤銷來源、晚到差額、rating 歷史、正負差額分流。
-- [ ] **T17（P1，1–2 日）— 企業合約與 Net30。** 來源 F04/F09；C31/C32 及 C01/C02 的 contract 分支。檔案：`api/admin/contracts.go`、contracts feature。依賴：T10/T13/T14。驗收：A22；條款版本、合約客戶身分、先開通、到期收款、缺後續價 hold 與明確轉換。
-- [ ] **T18（P1，1–2 日）— 對帳、修復及人工決議。** 來源 F04/F05；C33–C35。檔案：`api/admin/reconciliation.go`、reconciliation feature。依賴：T11/T13。驗收：A23；expected/actual、證據、revision、穩定修復鍵、事後再核對，人工決議不等同資金修正。
-- [ ] **T19（P1，1–2 日）— 帳戶灰度遷移。** 來源 F04/F09；C36–C43。檔案：`api/admin/account_migrations.go`、account-migrations feature。依賴：T13/T18。驗收：A24；映射、shadow、來源、readiness、切讀／切寫／停止與 adapter 所有入口。
-- [ ] **T20（P1，1–2 日）— 實驗室時鐘與故障隔離。** 來源 F07；C46–C49。檔案：`lab/admin_clock.go`、`api/admin/lab.go`、lab feature。依賴：T06/T07/T09/T11。驗收：A25；per-command 時刻、wall clock lease、一次性 fault ticket、不同操作不受影響、UI 環境標示。
-- [ ] **T21（P1，2–3 日）— 完整 browser／並行／恢復／效能驗收。** 來源 F01/F05/F09。檔案：`web/admin/e2e/`、`api/admin/*_test.go`、`lab/admin_*_test.go`。依賴：T10–T20。驗收：A01–A28；真 Go server＋隔離 SQLite，覆蓋 49 命令，不用全部 mock 成功代替。
-- [ ] **T22（P1，0.5–1 日）— 交付 build 與操作文件。** 來源 F10。檔案：README、`docs/implementation/web-admin.md`、build scripts、schema upgrade 指引。依賴：T21。驗收：A29/A30；全新環境、既有 DB、建置 binary、登入到完整操作；核對 coverage，只有通過才更新完成追蹤。
+- [ ] **T01 (P1, 0.5–1 day): Freeze contracts and the regression baseline.** Sources F09/F10. Files: `docs/design/06–08`, `lab/*_test.go`. Inventory S01–S12/P01–P03 fixtures, add an old-schema fixture, and map C01–C49. Dependencies: none. Acceptance: A01; preserve existing test results and record domain defects rather than hiding them behind the new UI.
+- [x] **T02 (P1, 0.5–1 day): Create the React and embedded-build skeleton.** Sources F08/F10. Files: `web/admin/`, `cmd/lab/adminassets/`, `cmd/lab/admin.go`. Add the route shell, pnpm lockfile, TypeScript, Vite, Ant Design ConfigProvider/App, theme tokens, and build tags. Dependency: T01. Acceptance: A02; test builds with and without `dist`, deep-link refresh, asset paths, and error pages.
+- [x] **T03 (P1, 1–2 days): Implement sessions, CSRF, permissions, and dedicated routes.** Source F02. Files: `api/admin/session.go`, `permissions.go`, `router.go`, `cmd/lab/admin.go`, `.env.example`, `.gitignore`. Dependency: T01. Acceptance: A03/A04; cover `.env` values and precedence, login rate limiting, session expiry, Host/Origin checks, unauthorized access, restart, and isolation from v1.
+- [ ] **T04 (P1, 1–2 days): Add a versioned commerce/provider admin schema and migrations.** Sources F05/F10. Files: `lab/admin_schema.go`, `lab/admin_migration_test.go`. Dependency: T01. Acceptance: A05; cover new and old databases, reruns, rollback on failure, unchanged financial history, and CLI compatibility.
+- [ ] **T05 (P1, 2–4 days): Extract transaction helpers while retaining public wrappers.** Sources F03/F06. Files: `lab/lab.go`, `billing.go`, `corrections.go`, `refunds.go`, `subscription_changes.go`, `immediate.go`, `usage.go`, and other writing modules. Dependencies: T04. Acceptance: A01/A06; avoid nested transactions and commit business facts with their receipts.
+- [ ] **T06 (P1, 2–3 days): Implement command admission, workers, receipts, and interrupted-command recovery.** Sources F03/F05. Files: `lab/admin_commands.go`, `admin_worker.go`, `api/admin/commands.go`. Dependencies: T03/T05. Acceptance: A06/A07/A08; cover canonical request hashes, same-key replay, lease generations, permission revocation, and crash points.
+- [ ] **T07 (P1, 1–2 days): Implement admin previews and precise API value types.** Sources F04/F08. Files: `lab/admin_previews.go`, `api/admin/types.go`, `errors.go`. Dependency: T06. Acceptance: A09/A10; bind each preview to one command and actor, enforce expiry and source revisions, and validate amounts and int64 boundaries.
+- [ ] **T08 (P1, 1–2 days): Build resource queries and core DTOs.** Source F01. Files: `lab/admin_queries.go`, `api/admin/queries.go`. Dependency: T04. Acceptance: A11; cover paging, allowlisted filters, source versions, and sensitive-data handling across pages.
+- [ ] **T09 (P1, 1–2 days): Build the shared admin UI.** Source F08. Files: `web/admin/src/app/`, `components/`, `api/`. Dependencies: T02/T03/T08. Acceptance: A12; show stale, error, and empty states consistently.
+- [ ] **T10 (P1, 1–2 days): Add subscription and plan-change workflows.** Sources F04/F09; C01–C06. Files: `api/admin/subscriptions.go`, `lab/admin_subscription_commands.go`, `web/admin/src/features/subscriptions/`. Dependencies: T07/T09. Acceptance: A13/A14; bind quotes to revisions and recover commands after a lost response.
+- [ ] **T11 (P1, 1–2 days): Add payment and refund operations.** Sources F05/F06; C07–C10 and C15–C17. Files: `api/admin/payments.go`, `refunds.go`, `lab/refunds.go`, and corresponding UI features. Dependency: T10. Acceptance: A15/A16; verify provider IDs, partial payments, definitive-failure retries, and UNKNOWN outcomes without claiming success prematurely.
+- [ ] **T12 (P1, 1–2 days): Add invoice corrections, credits, and upgrade compensation.** Sources F04/F09; C11–C14. Files: `api/admin/corrections.go`, `lab/admin_correction_commands.go`, and invoice/credit UI features. Dependencies: T11/T13. Acceptance: A17; preserve source provenance, prevent duplicate corrections, and keep compensation consistent when service starts late or fails to start.
+- [ ] **T13 (P1, 1–2 days): Add fixed-membership jobs and operations.** Sources F05/F06; C44/C45 and other batch foundations. Files: `lab/admin_jobs.go`, `api/admin/jobs.go`, jobs UI. Dependencies: T06/T07/T08/T09. Acceptance: A18; cover due renewals, entitlement refresh, per-item receipts, partial failure, restart, shutdown claim stopping, and stable membership.
+- [ ] **T14 (P1, 1–2 days): Add product, meter, price, and catalog selection.** Sources F04/F09; C18–C21. Files: `api/admin/catalog.go`, catalog UI, domain transaction helpers. Dependencies: T07/T09. Acceptance: A19; display all components, keep published prices immutable, avoid duplicate publication on replay, and honor cohort effective times.
+- [ ] **T15 (P1, 1–2 days): Add the price-migration workbench.** Sources F04/F05; C22–C25. Files: `api/admin/price_migrations.go`, price-migration UI. Dependencies: T13/T14. Acceptance: A20; cover complete previews, fixed per-account IDs, conflicts, skips, pause/resume, and reverse migrations as new batches.
+- [ ] **T16 (P1, 1–2 days): Add usage events, period close, rerating, and CreditNote.** Sources F06/F09; C26–C30. Files: `api/admin/usage.go`, usage UI, domain usage helpers. Dependencies: T13/T14. Acceptance: A21; cover duplicate and conflicting events, reversals, late deltas, rating history, and positive/negative adjustment paths.
+- [ ] **T17 (P1, 1–2 days): Add enterprise contracts and Net30.** Sources F04/F09; C31/C32 and the contract branches of C01/C02. Files: `api/admin/contracts.go`, contracts UI. Dependencies: T10/T13/T14. Acceptance: A22; keep contractual obligations, invoicing, and service activation traceable.
+- [ ] **T18 (P1, 1–2 days): Add reconciliation, repair, and manual resolution.** Sources F04/F05; C33–C35. Files: `api/admin/reconciliation.go`, reconciliation UI. Dependencies: T11/T13. Acceptance: A23; compare expected and actual facts, retain evidence and revisions, use stable repair keys, reconcile again afterward, and distinguish a manual decision from a funds correction.
+- [ ] **T19 (P1, 1–2 days): Add staged account migration.** Sources F04/F09; C36–C43. Files: `api/admin/account_migrations.go`, account-migration UI. Dependencies: T13/T18. Acceptance: A24; cover mapping, shadow comparison, source facts, readiness, adapter reads and writes, and stop conditions.
+- [ ] **T20 (P1, 1–2 days): Add isolated clock and fault-injection controls.** Source F07; C46–C49. Files: `lab/admin_clock.go`, `api/admin/lab.go`, lab UI. Dependencies: T06/T07/T09/T11. Acceptance: A25; bind faults to individual commands, keep other operations unaffected, and label the lab environment in the UI.
+- [ ] **T21 (P1, 2–3 days): Complete browser, concurrency, recovery, and performance acceptance.** Sources F01/F05/F09. Files: `web/admin/e2e/`, `api/admin/*_test.go`, `lab/admin_*_test.go`. Dependencies: T10–T20. Acceptance: A01–A28; use a real Go server and isolated SQLite databases to cover all 49 commands and lost responses.
+- [ ] **T22 (P1, 0.5–1 day): Deliver build and operations documentation.** Source F10. Files: README, `docs/implementation/web-admin.md`, build scripts, and database upgrade instructions. Dependency: T21. Acceptance: A29/A30; verify fresh and existing databases, embedded builds, login, operation flows, and coverage records.
 
-任務粗估不是交付承諾：主要風險集中在 T05–T07 的交易重構與恢復。T01 後依真實測試與 module 規模調整估時，保留功能範圍，不以縮減 C01–C49 趕期限。
+The task roughly does not include delivery commitments: the main risk is concentrated in the transaction restructuring and recovery of the T05 and T07. When adjusting for real test and module scale estimates after T01, the range of functionality is retained without reducing the C01 and C49 deadlines.
 
-## 3. 五階段交付範圍
+## 3. Scope of delivery in five phases
 
-| 階段 | tasks | 可以宣稱完成的內容 |
+|Stages| tasks |It's the only thing that can be said to be done.|
 | --- | --- | --- |
-| W1 | T01–T09 | 管理基礎、讀取與命令框架；不宣稱完整業務操作已完成 |
-| W2 | T10 | self-service 訂閱工作台；合約報價分支仍待 W4 |
-| W3 | T11/T13/T12/T18 | 付款、退款、credit、更正、營運 jobs、對帳 |
-| W4 | T14–T17 | 價格／meter／cohort／遷移、用量、企業合約 |
-| W5 | T19–T22 | 帳戶遷移、實驗室、完整驗收、可執行本機交付 |
+| W1 | T01–T09 |Manage the basics, read and command frameworks; It is not claimed that the entire operation is complete.|
+| W2 | T10 |Self-service subscription workshops; The contract offer branch remains at W4.|
+| W3 | T11/T13/T12/T18 |Payments, refunds, credit, repairs, jobs, reconciliation|
+| W4 | T14–T17 |Price/meter/cohort/migration, quantity, enterprise contracts|
+| W5 | T19–T22 |Accounts migrated, labs, full acceptance, can run in-house delivery.|
 
-可以獨立準備的部分：T02 與 T04、T03；T14 後的 T15/T16/T17 UI 可按 feature 分開。前提是共享 DTO、transaction helper、command dispatcher 已穩定；`lab/admin_commands.go` 等骨架須單一 owner。這是未來分工策略，此次沒有開始平行實作。
+Parts that can be prepared independently: T02 and T04 ̊T03; The T15/T16/T17 UI after T14 can be broken down by feature. The premise is that the shared DTO, transaction helper, command dispatcher is stable; The `lab/admin_commands.go` skeleton is a single owner. This is a future division of labor strategy, and this time it has not started in parallel.
 
-## 4. 執行與驗證命令（擬新增）
+## 4. Run with verification command (will be added)
 
-以下前端 scripts／admin build target 尚不存在，實作任務需建立後才能執行；目前不得把它們列為 passed。
+The following end-to-end scripts/admin build targets do not yet exist, and the executable task must be created to run; They are not currently classified as past.
 
 ```sh
 go test ./...
@@ -95,20 +98,20 @@ go build -tags adminui -o /tmp/billforge-admin ./cmd/lab
 pnpm --dir web/admin test:e2e
 ```
 
-前端 build script 將 dist 同步至 `cmd/lab/adminassets/dist`（生成物忽略，不提交），embed 檔案由 build tag 選用；測試 build 缺失資產會明確失敗，預設 API build 有 fallback。E2E script 負責啟動已 build 的 Go server、產生隔離 DB、透過 `.env` 測試帳密登入、退出及清理；禁止默認使用真實工作資料庫。
+The front-end build script will dist sync to `cmd/lab/adminassets/dist`(generator ignored, not submitted), and the embed file will be selected by the build tag; Testing builds failed, and missing API builds had a fallback. The E2E script is responsible for launching built-in Go servers, generating isolated DBs, testing logins, exits and cleansers via `.env`; It is illegal to use a real work database by default.
 
-schema 與 command 測試先用 targeted `-run`，跨 transaction refactor 後跑完整回歸。race 測試只針對 worker／session／clock 共用狀態的具體並行風險，Go SQLite 的交易一致性仍用確定性的 DB interleavings 驗證。
+The schema and command test are preceded by the targeted `-run`, followed by the complete return across the transaction refactor. The race test only targets specific parallel risks of the worker/session/clock shared status, while the transaction consistency of Go SQLite is still verified by definitive DB interleavings.
 
-## 5. 範圍、風險與結案規則
+## 5. Scope, risk and settlement rules
 
-不實作真實金流、稅、多幣別、正式總帳、公開部署、CRM、完整帳號管理、ARR dashboard。這些不是本次 49 項命令中的缺口，不需要另建空泛 TODO。
+It's not real money, it's not tax, it's multi-currency, it's official accounts, it's publicly deployed, it's CRM, it's full account management, it's ARR dashboard. These are not gaps in the 49 commands, and there is no need to create an additional TODO.
 
-規劃沒有待使用者決定的阻塞項；React 已確認，其餘技術與預覽政策採本文決策。若之後要公開部署、多名真實操作者或接 PSP，需另做需求與威脅模型，不能直接宣稱本機方案已滿足。
+Planning blocks not decided by the user; React has confirmed that the remainder of the technology and preview policies will be adopted in this document. If you want to publicly deploy multiple real operators or take a PSP, and then you need to do a need-threat model, you can't directly declare that the in-house program is satisfied.
 
-**設計結案**：文件連結、任務 DAG、49 命令 coverage、頁面／資料／失敗路徑／驗收 mapping 一致，且所有新增能力明示尚未實作。**開發結案**：T01–T22 完成、A01–A30 有真實證據、每一 C 命令都通過 contract matrix 和對應 browser 情境，才可把 Web Admin 標完成。目前只完成前者。
+** Design Conclusion**: Document linking, task DAG, 49 command coverage, page/data/failed path/acceptance mapping consistent, and all additional capabilities are clearly not yet implemented. ** Development Conclusion**: T01  T22 Complete  A01  A30 has real proof  Every C command can be completed with the Web Admin tag through the contract matrix and the corresponding browser context. It's the last one finished.
 
-## 6. 本輪規劃檢查紀錄
+## 6. This round of planning and inspection records
 
-2026-09-26 完成文件檢查：C01–C49 共 49 項命令均有任務對應；T01–T22 依賴無循環；A01–A30 共 30 組驗收均被任務引用；文件相對連結可解析。React 與 `.env` 單一管理帳密登入已納入一致契約，舊 bootstrap 提案已被取代。
+2026-09-26 Complete document inspection: C01 C49 has 49 commands with a task correspondence; T01 T22 relies on non-circulation; A01 A30 A30 Total of 30 Group Acceptance are all cited for assignment; Relative links can be analyzed. React has entered into a common contract with `.env` for a single management account password, and the old bootstrap proposal has been replaced.
 
-以開始規劃前的內容 hash 核對，60 個既有 Go／module 檔案全部未變更。此次沒有建立前端專案、修改功能程式、安裝依賴、建立實際帳密或執行新增驗收。上述檢查證明規劃產物一致，不代表 Web Admin 功能已完成。
+In the pre-planning hash verification, 60 existing Go/module files remained unchanged. This time, there was no creation of front-end projects, modification of functional procedures, installation of dependencies, creation of actual logs or running of additional receipts. The above checks prove that the product planning is consistent and do not mean that the Web Admin function has been completed.

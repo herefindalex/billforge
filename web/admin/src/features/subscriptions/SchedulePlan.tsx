@@ -178,7 +178,7 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
       { key: 'next', label: '下一步', children: subscription.isFetching ? '正在重新讀取訂閱。' : subscription.data.Revision !== staleAttempt.payload.revision ? '訂閱 revision 已改變，請建立對應新 revision 的變更報價與綁定。' : preview ? '請比較新舊預覽，再次確認後才會執行。' : createPreview.isError ? '來源已變更或報價不可用，請檢查錯誤並重新建立預覽。' : '正在建立新的預覽。' },
     ]} />} />}
     {previewInvalidated && !preview && !pending && !commandID && <Alert type="warning" showIcon className="result-card" message="變更輸入已修改，請重新預覽" />}
-    {pending && !commandID && <Alert type="warning" showIcon className="result-card" message="原排程命令的結果尚未確認" description={<Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>用原 request key 查詢</Button>} />}
+    {pending && !commandID && <Alert type="warning" showIcon className="result-card" message={immediate ? '原升級命令的結果尚未確認' : '原排程命令的結果尚未確認'} description={<Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>用原 request key 查詢</Button>} />}
     {previewError && <Alert
       type="error"
       showIcon

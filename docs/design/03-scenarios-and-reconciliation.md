@@ -1,47 +1,50 @@
-# C. 商務情境、故障點與對帳修復
+# C. Business Scenarios, Failure Points, and Reconciliation
 
-狀態：紙上 oracle，尚未執行測試。政策依 [A](01-pricing-and-policies.md)，保護點依 [B](02-domain-and-invariants.md)。除特別註明，時間為 UTC、幣別為 USD；月份使用 `[start,end)`。每次 trace 都要能由持久事實重播，不靠程式記憶體中的「成功」旗標。
+**English** | [繁體中文](03-scenarios-and-reconciliation.zh-TW.md) | [简体中文](03-scenarios-and-reconciliation.zh-CN.md)
+
+
+Status: Oracle on paper, not yet tested. The policy is based on [A](01-pricing-and-policies.md) and the protection points are based on [B](02-domain-and-invariants.md). Unless specifically noted, the time is UTC, not USD; The `[start,end)` is used monthly. Each trace must be replicated by enduring facts, not by the "success" flag in the program's memory.
 
 ## S01–S12 trace
 
-| 情境 | 事實順序、金額及失敗時答案 |
+|The situation.|The order of events, the amount of money and the answer to failure.|
 | --- | --- |
-| **S01 新 Basic** | 2026-09-01 Quote 引用 Basic v1、固定 $20、有效期限及 fingerprint；接受後建立 $20 invoice 與固定 key 的 capture operation。發送前崩潰由 outbox 重送同一 operation；capture `succeeded` 且 allocation 入帳後 Subscription 才 `active`，權益投影依來源開啟。Quote 本身不是應收或付款證據。 |
-| **S02 正常續約** | 帳期由原月日錨點算 `[09-30,10-30)`、`[10-30,11-30)` 等；31 日錨點於 2 月截月底，3 月回 31 日。`subscription+period+charge_group+revision` 唯一；固定預付 $20 在新期核定一次，capture operation 也只對應一次義務。重跑關帳／worker 回原結果。 |
-| **S03 續約失敗與 grace** | 10-01 Basic $20 invoice 到期，確定失敗仍保留 open 應收；依 due_at 起 7 天 grace，權益先 `grace`，到 deadline 才 `suspended`。補款 $20 確認後分配到原 invoice，權益回 `active`，保留中斷歷史。是否在 suspended 時繼續新期計費由明示服務政策決定；本 lab 暫停新增預付服務期，未付歷史不抹除。 |
-| **S04 provider 已成功，本地回應遺失** | $20 capture 使用既存 provider key 發出，timeout 後 operation 為 `unknown`，本地不可聲稱失敗或建立另一 key。查原 key：若確證成功，入一筆觀察／allocation／activation；若查詢仍無終局，維持 unknown 並告警；僅 provider 的終局無扣款證據能釋放保留。 |
-| **S05 webhook 重複、亂序及崩潰** | 同 event ID 的 success 只消費一次；較晚收到的 pending 不讓 success 倒退。若成功觀察與 allocation 已提交而權益 worker 崩潰，重建權益投影；若崩在提交前，重新消費 inbox／查 provider。同一 capture 對同一義務仍只分配一次。 |
-| **S06 下期變更、取消／恢復** | Basic → Pro 五席排到 10-01，當期仍 Basic；同一邊界只允一項排程，由 `subscription revision` CAS 拒絕競爭寫入。`cancel_at=10-01` 與下期升級衝突時本 lab 不猜優先序，要求先撤銷取消再接受升級；取消前 resume 清除排程且保留 audit。10-01 已結束後不叫 resume，重新購買。 |
-| **S07 期中 Pro 升級** | 9 月 `[09-01,10-01)`，Basic 已預付 $20，Pro 五席為 `$50+$10×5=$100`。09-16 立即切換的剩餘 15/30 天：Basic 未提供段退款行 `−$20×15/30=−$10`，Pro 新段 `$100×15/30=$50`，補差額 invoice **$40**；負行已抵正行，不另生可花 credit。若 $40 capture 為 UNKNOWN，Basic 持續、Pro 不先開。09-18 才證實已收並啟用，剩 13/30：`−$20×13/30=−$8.67`，`$100×13/30=$43.33`，實際補差額 **$34.66**。保留原 $40 invoice，另作 `+$1.33` Basic 回收修正和 `−$6.67` Pro 服務修正，淨更正 `−$5.34`；已收 $40 中釋出的 **$5.34** 才成為 funded credit，可抵下期或申請退款，兩者共用額度。 |
-| **S08 新價與 cohort** | 發布 Pro v2 並設定 cohort A 的 CatalogSelection；原訂閱仍指 Pro v1。遷移先預覽每戶下一期金額、權益和差額，再以 `migration_id+subscription_id+target_version` 做唯一命令；在期界 CAS 關閉 v1 assignment、開 v2 assignment。部分完成時停止新批次，已成功者保留明確歷史；回退用反向新 assignment，不改舊帳或已發布價格。 |
-| **S09 用量與晚到** | Pro 當期包含 20,000 tasks，超額 $0.001/task。關帳 cutoff 前共 20,003，精確超額 $0.003，按當期同元件段 half-even 為 **$0.00**；invoice line 仍保存原量及未捨入值。晚到同原期 7 tasks 後累計 20,010，精確 $0.010、累計應收 $0.01，減已入帳 $0.00，下一張票的原期 debit **$0.01**。相同 event 重送 delta $0；同 event ID 內容變動回 conflict。負差額走 CreditNote，不能改原 invoice。 |
-| **S10 Acme 合約** | Acme 的 ContractVersion 覆寫白名單固定費 `$40`、席次 `$7×5`，當期總 **$75**、Net30。PriceVersion 提供元件與捨入等基底，合約引用價源並保存覆寫；條款允許核定後先開服務，非「已付款」。合約到期及後續指派在期界；若缺明確後續價，不暗用 catalog current price，停止自動續價、報 discrepancy 與人工處理。 |
-| **S11 更正與退款競爭** | 原 invoice $100 更正淨義務為 $80。未付時只將 open 應收降至 $80，credit=$0；已收 $60 時剩餘應收 $20，credit=$0；已收 $100 時釋出 capture allocation $20 成 funded credit，應收 $0。若同時申請兩筆各 $15 refund，第一筆預留 $15 後第二筆因可用只剩 $5 而拒絕或縮額；若先抵未來帳 $20，退款可用為 $0。退款 UNKNOWN 時保留額仍佔用。 |
-| **S12 對帳缺口** | 對帳比較已核定 invoice／應收、allocation、provider observations、subscription assignment 和權益來源 revision。單純缺投影可重建；未送 outbox 重跑原工作；provider timeout 查原 key；未知 provider transaction 或金額／幣別矛盾先封存證據並人工審閱。RepairOperation 記 `expected/actual`、前置 revision、穩定 key、執行與再核對；重跑不創第二效果。 |
+|**S01 The new Basic**|2026-09-01 Quote: References to Basic v1, fixed $20, expiration date and fingerprint; After accepting, create a $20 invoice with a fixed key capture operation. the same operation is sent back from the outbox before the crash; Subscription to capture `succeeded` and allocation After entering into account, subscription to `active`, entitlement projection based on source is open. Quote itself is not proof of receipt or payment.  |
+|**S02 Regular Renewal**|The billing period is calculated by the reference point `[09-30,10-30)`, `[10-30,11-30)` etc.; 31st is the end of February, and 31st reverts to 31st in March. `subscription+period+charge_group+revision` is unique; a fixed prepayment of $20 is captured once in the new period, and the capture operation is only performed once. Re-running the closure/worker returns to the original result. |
+|**S03 renews failure with grace**|10-01 Basic $20 invoice expires and the failure remains open for collection; Due_at 7 days grace, entitlement begins with `grace`, and the deadline is `suspended`. After confirmation, the supplement of $20 is allocated to the original invoice, entitlement back to `active`, retaining the interruption history. Whether to continue the new term billing at the time of the suspension is decided by the explicit service policy; This lab has suspended the addition of prepaid service periods, without deleting the history.  |
+|**S04 provider has been successful, local lost response**|$20 capture Using an existing provider key, the timeout operation is `unknown`, and no local failure or creation of another key is possible. Check-in key: Enter an observation/allocation/activation if it is confirmed to be successful. If the search is still endless, keep unknown and notify the police; Only providers of end-to-end proof of no deduction can release reservations.  |
+|**S05 webhook repeat, disorder and crash**|The success of the event ID is consumed only once; However, there is no reason to believe that success can't be reversed by later pendings. If the entitlement worker collapses and the allocation has been submitted and is observed successfully, rebuild the entitlement projection; If it crashes before submitting, re-consume the inbox/check provider. The same capture is allocated only once to the same obligation.  |
+|**S06 Subsequent changes, cancellation/reset**|Basic → Pro ranks 10-01 with five seats remaining Basic; The same boundary only allows one scheduling and `subscription revision` CAS refuses to enter the competition. `cancel_at=10-01` did not anticipate priorities when it came into conflict with the next upgrade, requiring cancellation and acceptance of the upgrade to be withdrawn; Cancel the previous resume, delete the schedule and keep the audit. 10-01 When the resume is over, it is not called, it is bought again.  |
+|**Pro upgrades during S07**|In September, `[09-01,10-01)`, Basic has a pre-sale price of $20, and the five Pro seats are `$50+$10×5=$100`. 09-16 The remaining 15/30 days of immediate change: Basic does not offer a refund of `−$20×15/30=−$10`, Pro new section `$100×15/30=$50`, supplementary invoice **$40**; Negative credit has been paid off, and no other credit can be paid. If $40 capture is for UNKNOWN, Basic continues, Pro doesn't start. 09-18 was confirmed to have been received and activated, remaining 13/30: `−$20×13/30=−$8.67`, `$100×13/30=$43.33`, actual replacement difference **$34.66**. Keep the original $40 invoice, as well as the `+$1.33` Basic Recycling Amendment and the `−$6.67` Pro Service Amendment, and the net amended `−$5.34`; Only **$5.34** issued in $40 is funded credit, which can be redeemed or refunded, with a common amount.  |
+|**S08 New prices and cohort**|Release Pro v2 and set CatalogSelection for cohort A; The original subscription still refers to Pro v1. Migrate to preview the amount, entitlement and difference for each of the next periods and use `migration_id+subscription_id+target_version` as the only command; In the CAS interval, close the v1 assignment, open the v2 assignment. When the new batch is partially completed, the successor retains a clear history; Returns the reverse new assignment without changing the old account or the published price.  |
+|**S09 intake and late**|Pro currently contains 20,000 tasks, an additional $0.001/task. The closing cutoff was 20,003, an accurate excess of $0.003, and half-even for the same component segment at the time was **$0.00**; The invoice line still retains the original quantity and value. After 7 tasks late in the same period, the cumulative is 20,010, which is exactly $0.010, the cumulative is $0.01, minus the $0.00 billed, and the original debit **$0.01** of the next ticket. The same event returns delta $0; Change the content of the same event ID to conflict. The negative difference is CreditNote and the original invoice cannot be changed.  |
+|**S10 Acme contract**|Acme's ContractVersion overwrites the whitelisted fixed fee `$40`, seat `$7×5`, for the time being total **$75**, Net 30.. PriceVersion provides a base for components and add-ons, contracting to quote prices and keep overwriting; The terms of the agreement allow the first service to be opened after verification, not "paid". the term of the contract and the period of appointment thereof; In the absence of a clear follow-up price, do not use the catalog current price, stop automatic renewals, report discrepancies and manual processing.  |
+|**S11 correction and withdrawal competition**|The original invoice was $100, and the net liability was $80. If you don't pay, open is reduced to $80, credit = $0; The remaining $20 is due upon receipt of $60, credit = $0; The capture allocation is $20 for funded credit, and $0 for capture allocation. If two $15 refunds are requested simultaneously, the first $15 is withheld and the second $15 is refused or reduced because only $5 is available; If you have a $20 down payment, you can get a $0 refund. Reservations remain in place at the time of the refund UNKNOWN.  |
+|**S12 reconciliation gap**|reconciliation comparison has confirmed invoice/receipt, allocation, provider observations, subscription assignment and entitlement source revision. It is simply a lack of projection that can be reconstructed. No outbox is sent to the re-run; Provider timeout to source key; Unknown provider transaction or amount/currency discrepancy before evidence is stored and manually reviewed. RepairOperation notes `expected/actual`, pre-set revision, stable key, run and re-check; do not repeat a repair without verifying the recorded outcome.  |
 
-S07 的 09-18 日期以實際開通時刻為服務邊界；如果 provider 事後證實成功時間早於 09-18，仍按實際提供 Pro 權益的時刻核算，不用 PSP 時間冒充服務時間。這是此 lab 的客戶服務政策，後續需讓產品／財務審閱。
+S07 dates from 09 to 18 serve as the border at the time of actual opening; If the provider later confirms a successful time earlier than 9/18, it will still be billed at the actual time of providing Pro entitlement, without the PSP time to pretend to be the service time. This is the lab's customer service policy, which requires product/financial review.
 
-## 故障點到恢復路徑
+## Failure point to recovery path
 
-| 故障點 | 持久事實 | 恢復及禁止事項 |
+|Failure point|It's an enduring fact.|Restoration and prohibition|
 | --- | --- | --- |
-| Quote 接受交易前崩潰 | 無新 intent | 客戶可用同 idempotency key 重試；重新驗證 quote 的到期與 revision。 |
-| 接受交易後、provider 發送前 | intent、operation、outbox 已提交 | 送同 key／同 payload；不重算 current price。 |
-| provider 收到後 timeout | operation unknown、原 key 在案 | 查原 key，未查明不換 key；保留應收／退款預留。 |
-| success webhook 後、allocation 提交前 | inbox 未完成或 pending | 重播觀察並驗證義務；交易唯一鍵保證一筆 allocation。 |
-| allocation 後、權益投影前 | 成功收款及 allocation 已在案 | 依政策重建權益，不再 capture。 |
-| invoice 核定後、通知前 | 完整 invoice、audit、outbox | 重送通知；不重產 invoice。 |
-| refund 發送後 timeout | refund operation unknown，來源預留仍在 | 查原 refund key；不釋放也不另退。 |
-| migration 批次中斷 | 各戶 assignment revision 和 migration result | 從未完成戶繼續；已完成戶不以舊指派再套一次。 |
+|Quote before the deal collapsed.|There is no new intent.|Customers can retry the idempotency key; Re-validate the expiration and revision of the quote.  |
+|After accepting the transaction, the provider before sending.|Intent, operation, outbox has been submitted|Send the same key/payload; The current price is not calculated.  |
+|Provider timeout after receipt|operation unknown, original key in the case|A key that is not identified and cannot be changed; Reservations to be received/refunded Reservations.  |
+|After success webhook, allocation before submission|Inbox unfinished or pending|the obligation to re-broadcast observation and verification; The only key to the transaction is to ensure an allocation.  |
+|After allocation, before entitlement projection.|Successful receipts and allocations are in place|The policy is to rebuild entitlement and no longer capture.  |
+|After the invoice is confirmed, before the notification.|The full invoice, audit, outbox|Re-send the notification; The invoice is not reproduced.  |
+|The refund is due after the timeout.|Refund operation unknown, source reservation still in place|Check the original refund key; It's not free, it's not back.  |
+|Migration, mass disruption|Assignment revision and migration results|Never completed the account; It is not necessary to reapply the old designation of the completed house.  |
 
-## 對帳分類與修復矩陣
+## reconciliation classification and repair matrix
 
-| 分類 | 典型證據 | 允許的動作 | 修復後驗證 |
+|Classified|Typical evidence|It's not just a matter of getting it done.|After repair verification.|
 | --- | --- | --- | --- |
-| SAFE_AUTO_REPAIR | 成功 allocation 和有效 assignment 存在，僅 entitlement projection 缺失 | 按釘選 policy 重建投影；不改財務事實 | 權益 reason／source revision 與期望一致 |
-| RETRY_REQUIRED | 已提交 outbox 未送達 | 原 job／operation key 重跑 | provider reference 或成功送達紀錄唯一 |
-| EXTERNAL_LOOKUP_REQUIRED | provider timeout／互斥的非終局回報 | 查原 operation 和遠端狀態，等待可信終局 | 本地 observation 能指向外部原操作 |
-| MANUAL_REVIEW | 遠端金額／幣別不符、未知外部交易、合約到期後無指派 | 暫停相關自動金流或續價；收集 provider、quote、invoice 證據 | 人工決議與核准者、後續命令有引用 |
-| UNSAFE_TO_REPAIR | 缺歷史 capture 或互相矛盾的票據來源 | 不覆寫原資料；調查後另開可稽核更正 | 新更正完整指回原物件與決議 |
+| SAFE_AUTO_REPAIR |Successful allocation and effective assignment exist, only entitlement projection is missing.|The project is rebuilt using a policy; It's not about the financial facts.|entitlement reason/source revision in line with expectations|
+| RETRY_REQUIRED |Outbox has been submitted, not delivered.|The original job/operation key is running again.|The only provider reference or successfully delivered records.|
+| EXTERNAL_LOOKUP_REQUIRED |Provider timeout/reciprocal non-terminal returns|In the meantime, we're looking forward to a reliable end.|Local observation can point to external operations.|
+| MANUAL_REVIEW |Distant amounts/coins are not compatible, unknown external transactions, no appointment after contract expiration|suspending or renewing the relevant automatic gold flows; Collecting providers, quotes, invoices|Human Resolutions and Appropriators and Subsequent Commands are referenced.|
+| UNSAFE_TO_REPAIR |There is no historical capture or conflicting evidence.|the original data; In the meantime, we're going to have to make some adjustments.|The new amendments completely refer to the original objects and resolutions.|
 
-每次 ReconciliationRun 保存 cutoff、檢查集合、`expected`、`actual`、證據來源及觀察時間。Discrepancy 有穩定身分及狀態 `open/investigating/resolved`；「沒有查到 provider 交易」只代表當次查詢結果，不足以單獨宣告扣款未發生。修復的安全前提是來源事實完整；證據不足時分類升級，不自動湊平。
+For each Reconciliation Run, save the cutoff, check the set, `expected`, `actual`, source of the evidence and time of observation. Discrepancy with stable identity and status `open/investigating/resolved`; "No-searched provider transaction" only represents the results of the search and is not sufficient to separately declare that the deduction has not occurred. The security of the repair is based on the integrity of the source facts; The classification is upgraded when there is insufficient evidence and not automatically leveling.

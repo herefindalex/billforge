@@ -1,43 +1,46 @@
-# 互動式選單 CLI
+# Interactive CLI
 
-日期：2026-09-26。此介面操作 Billforge **已實作**的 S01–S12、P01 與 P03 本機切片；它使用兩個持久化 SQLite 檔案，其中 Commerce 與 fake provider 各有獨立狀態。沒有真實支付連線。
+**English** | [繁體中文](interactive-cli.zh-TW.md) | [简体中文](interactive-cli.zh-CN.md)
 
-## 啟動
+
+The date is 2026-09-26. This interface operates Billforge ** which has been implemented** on S01 and S12, P01 and P03 autocuts; It uses two durable SQLite files, where Commerce and fake providers are independent. There is no real payment connection.
+
+## Starting
 
 ```sh
 go run ./cmd/lab
-# 或直接指定要繼續使用的資料庫
+# Or specify the databases to continue using
 go run ./cmd/lab menu ./billforge-data/commerce.db ./billforge-data/provider.db
 ```
 
-不帶路徑時，程式會詢問兩個檔案位置，按 Enter 使用 `./billforge-data/commerce.db` 與 `./billforge-data/provider.db`。同一路徑再次開啟可繼續操作原資料。主選單按 `0` 離開；子選單按 `0` 返回。物件可輸入清單編號或完整 ID，選擇物件時留空可返回。
+When there is no path, the program asks for the location of the two files, using `./billforge-data/commerce.db` and `./billforge-data/provider.db`. The same path opens again so you can continue to operate the original data. The main menu is left on `0`; The sub-menu was returned by `0`. Objects can be entered with a list number or full ID, and left blank when selecting an object can be returned.
 
-| 選單 | 可做的事 |
+|The menu|What can be done?|
 | --- | --- |
-| 查詢目前狀態 | 查看報價、訂閱、帳期、發票應收／淨已付／未付、付款、更正、credit、credit 應用、退款及待處理 outbox；按物件查詳情，或單獨查看 fake provider 結果。 |
-| 報價與新購 | 建立 Basic、Pro 或已發布方案／cohort 報價，接受報價並建立初始付款操作。 |
-| 付款 | 建立部分付款、重試確定失敗的付款、送出下一筆付款、以原操作查證 UNKNOWN、設定 fake provider 結果。 |
-| 續約與權益 | 執行到期續約、根據已提交的帳務事實重建權益。 |
-| 發票更正與 credit | 對已定稿發票過帳減額、把有來源的 credit 應用於後續續約發票。 |
-| 退款 | 保留退款額度、送出、查證 UNKNOWN、設定 fake provider 結果。 |
-| 設定模擬時間 | 輸入 RFC3339 UTC 時間，例如 `2026-10-01T00:00:00Z`，或輸入 `real` 恢復系統時間。 |
-| 訂閱排程與取消 | 以目前 revision 排下期 Basic／Pro 變更、期末取消，或在取消生效前恢復。 |
-| 價格版本與 cohort 遷移 | 發布 Pro 或配置式計量價格、註冊 meter、指定 cohort，並預覽／管理既有訂閱遷移。 |
-| 用量與關帳 | 依訂閱 meter 記錄事件、撤銷事件、關帳、晚到重算及負差額 CreditNote。 |
-| 企業合約與 Net30 | 發布合約、報價、接受並先開通服務，處理到期收款。 |
-| 對帳、修復與人工決議 | 保存差異證據，指定安全修復、查原付款操作，或記錄人工決議。 |
-| 帳戶邊界與灰度遷移 | 建立來源 ID 映射、唯讀 shadow 比較、歷史來源回填、讀取／寫入切換及停止操作。 |
+|Find the current status.|View offers, subscriptions, billing periods, receipts/net payments/unpaid receipts, payments, corrections, credit, credit applications, refunds and outbox processing; Check the details by object, or check the fake provider results separately.  |
+|Offerings and new purchases|Create a Basic、Pro or a published program/cohort offer, accept the offer and create an initial payment operation.  |
+|Payments|Create a partial payment, retry to identify the failed payment, send the next payment, verify UNKNOWN with the original operation, set the false provider result.  |
+|Renewal and entitlement|Running expiration renewals, rebuilding entitlement based on submitted accounting facts.  |
+|In the case of a bank account, a bank account is a bank account.|The amount of overdrafted invoices shall be deducted from the originating credit for subsequent renewal of invoices.  |
+|Refunds|Save the refund amount, send out, verify UNKNOWN, set the fake provider results.  |
+|Set up a simulation time.|Enter RFC3339 UTC time, such as `2026-10-01T00:00:00Z`, or enter `real` recovery system time.  |
+|Subscription schedules and cancellations|With the current revision, the Basic/Pro changes are deleted at the end of the current revision period, or restored before they take effect.  |
+|Price version and cohort migration|Release Pro or configured measurement prices, register meter, specify cohort, and preview/manage subscription migration.  |
+|How much is the amount of food?|According to the subscription meter, recording events, cancellation events, closing accounts, delay to recalculation and negative difference CreditNote  |
+|Business contracts with Net30|It is the process of issuing contracts, making offers, accepting and opening services, and dealing with expire receipts.  |
+|Reconciliation, Repair and Artificial Resolution|Preserving evidence of differences, specifying security repairs, checking payment operations, or recording artificial resolutions.  |
+|Account boundaries and gray migration|Create source ID mapping, only read shadow comparisons, historical source replenishment, read/write switching and stop operations.  |
 
-金額輸入為**整數最小貨幣單位**：USD 20.00 請輸入 `2000`。請求鍵是業務操作的身分；同一操作重試時必須輸入**相同**鍵。付款或退款顯示 UNKNOWN／模擬崩潰時，應用選單中的「依原操作查證」，不要以新請求鍵再送出。`lost_response` 與 `crash_after_provider` 可在送出操作時選擇。
+Amount of input for the smallest total currency unit**: USD 20.00 Please enter `2000`. The request key is the identity of the business operation; When the same operation retry, the same key must be entered. When a payment or refund displays a UNKNOWN/simulator crash, do not re-send it with a new request key. `lost_response` and `crash_after_provider` can be selected when sending operations.
 
-## 一條可手動走通的路徑
+## A handy path
 
-1. 在「設定模擬時間」輸入 `2026-09-01T00:00:00Z`。
-2. 在「報價與新購」建立 Basic 報價並接受，記下請求鍵。
-3. 在「付款」送出初始付款；在「續約與權益」重建權益。
-4. 在「發票更正與 credit」將 $20 發票減額 `400`，產生 $4 credit。
-5. 在「退款」保留並送出 `200`；在「設定模擬時間」移到 `2026-10-01T00:00:00Z`，然後執行續約。
-6. 將剩餘 `200` credit 用於續約發票；建立 `1800` 的新付款並送出，再重建權益。
-7. 在「查詢目前狀態」確認初期應收 `1600`、續約 credit 應用 `200`、退款成功 `200`，grant 可用額度 `0`。
+1. In "Set Simulation Time", enter the `2026-09-01T00:00:00Z`.
+2. Create and accept the Basic offer and press the request button on "Offer and New Purchase".
+3. In the "payment" the initial payment is sent; Re-create entitlement in "Renew and entitlement".
+4. In "Fixing Corrections and Credit", the $20 Fixing Reduction `400`, which generated $4 credit.
+5. In the "return" and sending `200`; In "Set Simulation Time", move to `2026-10-01T00:00:00Z`, and then run the extension.
+6. The remaining `200` credit will be used for renewal invoices; Create and send new payments for `1800` and reconstruct entitlement.
+7. In order to find the current status, the initial confirmation of `1600` must be received, the credit must be renewed, the `200` must be applied, the `200` must be withdrawn, the `0` grant is available.
 
-模擬時間只存在當前 CLI 工作階段，重新開啟後回到系統時間；已寫入的帳務事實持久保存。Commerce 總覽在單一唯讀交易中讀取；fake provider 使用另一個資料庫，畫面會分開顯示，兩邊不是同一個跨資料庫快照。這個小型 lab 的狀態查詢未分頁，不作為正式營運介面。
+The simulation time exists only at the current CLI working stage and returns to system time after reopening; The facts of the written accounts are preserved for the long term. Commerce summaries are read in a single read-only transaction; The fake provider uses a different database, and the image is separated to show that the two sides are not the same across the database. This small lab's status search for unseparated pages, not as an official operating interface.

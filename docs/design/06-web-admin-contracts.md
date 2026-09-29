@@ -1,254 +1,257 @@
-# Web Admin 工程契約
+# Web Admin Contracts
 
-狀態：規劃完成、部分實作。2026-09-26；React 與 Ant Design 已由使用者確認。本文將 [功能設計](05-web-admin.md) 的開放選項收斂為可實作決策。條目包含尚未實作的 API 與命令，實際可用範圍以[實作計畫](07-web-admin-implementation-plan.md)中的進度紀錄為準。
+**English** | [繁體中文](06-web-admin-contracts.zh-TW.md) | [简体中文](06-web-admin-contracts.zh-CN.md)
 
-## 1. 確定的架構
 
-- 前端：React、TypeScript、Vite、React Router、TanStack Query、Ant Design 與 Zod。Ant Design Form 負責互動表單和即時欄位提示；Zod 驗證 API DTO 與金額、日期等輸入格式。採 client rendering，不引入 SSR 或第二個業務後端。UI 不混用 React Hook Form、Radix UI、Refine 或另一套元件框架。
-- 套件管理：pnpm；實作時選擇彼此相容的穩定版本並提交 lockfile。規劃階段不安裝套件，不虛構尚未解析的版本號。
-- 前端位置：`web/admin/`；Go 管理 HTTP：`api/admin/`；查詢、命令交易與遷移仍在 `lab/`，方便重用既有未匯出的交易 helper，避免第二套金額邏輯。
-- 視覺與互動基準：以 Ant Design 的 ConfigProvider／App 統一主題 token、間距、字體、locale 與訊息容器；頁面使用 Layout、Menu、Table、Form、Descriptions、Alert、Modal、Drawer、Result、Empty 等既有元件。業務元件 DataTable、Money、StatusBadge、ObjectLink、RevisionNotice、Timeline、CommandProgress、PreviewDiff、ConfirmAction、FieldError、EmptyState、ErrorState 在其上封裝領域語意；只用少量局部 CSS 處理布局與金額對齊。狀態同時呈現文字與圖示，不單靠顏色。
-- 金融輸入與確認：金額和高精度費率使用字串輸入與明確格式解析，不透過 JavaScript number 或 Ant Design InputNumber 決定金融值。ConfirmAction 必須顯示伺服器預覽、版本與影響範圍，依命令契約送出並可恢復進度；Ant Design Modal／Popconfirm 只提供互動外殼，不承擔授權、冪等或金融正確性。
-- 新增啟動入口：`lab admin commerce.db provider.db [127.0.0.1:8080]`。這個 server 只掛載管理靜態頁、session 與管理 API；**不掛載目前未具完整授權的 v1 寫入路由**。保留既有 `lab serve` 作獨立的本機 API 實驗入口。
-- 同源管理 API 前綴 `/admin/api`；頁面前綴 `/admin`；支援明確 IPv4／IPv6 loopback。CLI、v1、admin 最終重用同一領域檢查，但本機檔案擁有者不受 Web RBAC 隔離；不把本機 SQLite 當多租戶安全邊界。
-- 發布 build 使用 `adminui` build tag 嵌入前端資產；普通 `go test ./...`／純 API build 不需要 dist。沒有內嵌資產的 binary 執行 `admin` 時明確指出缺少建置步驟。不得靜默回傳空頁。
-- 開發 Vite 僅綁 loopback，proxy 管理 API；只有明確設定的開發 origin 可使用。session 與 Origin 檢查仍生效。
+Status: Planning completed, partial implementation. 2026-09-26； React and Ant Design have been confirmed by users. This article incorporates the open options of [Functional design](05-web-admin.md) into a viable decision. The entries contain unimplemented API and commands, and the actual range of available data is based on progress records in [Action Plans](07-web-admin-implementation-plan.md).
 
-前端不直接呼叫 `State()`、不存內部 API token、不計算收款金額、不把過期預覽當成授權依據。
+## 1. Defined architecture
 
-## 2. 頁面契約與 frontend 邊界
+- The front end: React, TypeScript, Vite, React Router, TanStack Query, Ant Design and Zod. Ant Design Form is responsible for interactive forms and instant field prompts. Zod verifies API DTO with input formats such as amount, date, etc. The client rendering is used without introducing SSR or secondary business backend. The UI is not confused with React Hook Form, Radix UI, Refinine or any other component framework.
+- Package management: pnpm; choose compatible stable versions and submit a lockfile during implementation, do not install packages or pretend unresolved version numbers during the planning phase.
+- Front of the line:`web/admin/`Go manages HTTP:`api/admin/`Search, command, and migration are still ongoing.`lab/`It's easy to reuse an existing unimported transaction helper to avoid secondary logics.
+- Visual and interaction benchmarks: with Ant Design's ConfigProvider/App unified theme tokens, spaces, fonts, locals and message containers; The page uses existing components such as Layout, Menu, Table, Form, Descriptions, Alert, Modal, Drawer, Result, Empty. The business components DataTable, Money, StatusBadge, ObjectLink, RevisionNotice, Timeline, CommandProgress, PreviewDiff, ConfirmAction, FieldError, EmptyState, and ErrorState are the language fields that contain them; It's easy to use a small amount of local CSS to align layout with amount. The state presents text and icons at the same time, not just by color.
+- Financial Input and Confirmation: The amount and high-precision rates used for string input and explicit format analysis, without determining the financial value by a JavaScript number or Ant Design InputNumber. ConfirmAction must display the server preview, version and impact range, and send and restore progress according to the command contract; Ant Design Modal/Popconfirm only offers interactive shades, and does not assume authorization, idempotent or financial correctness.
+- Added start entry: `lab admin commerce.db provider.db [127.0.0.1:8080]`. This server only loads static pages, sessions and managing APIs; ** Do not install a currently unauthorized v1 writing path**** Keep existing `lab serve` as an independent native API experimental input.
+- In addition to the above, there is a list of the most commonly used names for the `/admin/api` API. The following pages link to `/admin`: It supports explicit IPv4/IPv6 loopback. CLI, v1, and admin will ultimately re-check the same domain, but the native file owner will not be isolated from Web RBAC; Don't use SQLite when multiple tenants are at the border.
+- Release build using the `adminui` build tag to embed the front-end asset; `go test ./...`/Pure API build does not require dist. When running a binary without embedded assets, `admin` clearly indicates a lack of setup steps. It's not a good idea to go back and forth on empty pages.
+- Vite develops a loopback-only, proxy-managed API; Only a clearly defined development origin can be used. The session and Origin checks are still valid.
 
-| route（省略 `/admin`） | 主資料／主要操作 | 關聯面板 |
+The front end does not directly call `State()`, no internal API tokens, no receipt amounts, no expired previews as authorization basis.
+
+## 2. Page contracts with the frontend boundary
+
+| Route (without `/admin`) | Primary data and operations | Related panels |
 | --- | --- | --- |
-| `/` | 營運待辦與資料觀測時間 | 篩選後的列表連結 |
-| `/customers`、`/customers/:id` | 客戶彙整、訂閱列表、新購 | 帳單、credit、legacy 映射 |
-| `/quotes`、`/quotes/:id` | 既有報價、元件、用途、期限與 fingerprint；接受或建立新報價 | 客戶、綁定訂閱、必要 client 能力 |
-| `/subscriptions`、`/subscriptions/:id` | 實際與下期價格、席次、revision；報價／升降級／取消／恢復 | 帳期、付款、權益來源、時間軸 |
-| `/invoices`、`/invoices/:id`、`/credits` | 帳單來源、credit 配額；更正／應用／補償 | lines、allocations、退款來源 |
-| `/payments`、`/payments/:id`、`/refunds` | 義務、嘗試、provider 觀測；送出／查證 | 命令與原始資金來源 |
-| `/catalog/prices`、`/catalog/prices/:id`、`/catalog/meters` | 版本比較、發布、meter 註冊、cohort 選價 | checksum、生效範圍 |
-| `/price-migrations`、`/price-migrations/:id` | 遷移預覽、逐戶進度；暫停／略過／恢復 | 新舊 assignment 與衝突 |
-| `/usage`、`/usage/:subscriptionId/:periodIndex` | 事件、rating、晚到差額；關帳／重算／credit note | 撤銷鏈、invoice line |
-| `/contracts`、`/contracts/:id` | 合約條款、Net30、後續價；發布／報價／到期收款 | 對應訂閱與 invoice |
-| `/reconciliation`、`/discrepancies/:id` | runs、expected/actual、證據；修復／人工決議 | 修復前後 revision／run |
-| `/account-migrations`、`/account-migrations/:legacyId` | 映射、shadow、回填、readiness、owners；切換／停止 | legacy provenance、adapter view |
-| `/commands`、`/commands/:id`、`/jobs/:id` | 命令／job 狀態、逐項結果 | 所產生的領域物件 |
-| `/lab` | 模擬時鐘、fake provider 及支援的故障 | 被影響的命令／操作 |
+| `/` |Operating hours and data observation times|Link to the selected list|
+| `/customers`, `/customers/:id` | Customer summary, subscription list, and new purchase | Invoices, credits, and legacy mapping |
+| `/quotes`、`/quotes/:id` |It also includes the offer, components, uses, deadlines and fingerprints. Accept or create new offers.|Customer, binding subscriptions, the necessary client capabilities|
+| `/subscriptions`、`/subscriptions/:id` |The actual and final prices, seats, revisions; Offer/Upgrade/Cancel/Restore|Billing period, payment, entitlement source, timeline|
+| `/invoices`、`/invoices/:id`、`/credits` |Source of bills, credit allowance; Repair / Application / Compensation|Lines, allocations, sources of refunds|
+| `/payments`、`/payments/:id`、`/refunds` |It's the responsibility of the providers, the providers, the observers. Send out / verify|Command and the source of the original funding.|
+| `/catalog/prices`、`/catalog/prices/:id`、`/catalog/meters` |This is a list of all the different types of content that you can find on the website.|Checksum, scope of application|
+| `/price-migrations`、`/price-migrations/:id` |This is a great way to get started. In the meantime, we're going to have to make a decision.|New and old assignments and conflicts|
+| `/usage`、`/usage/:subscriptionId/:periodIndex` | Events, ratings, late fee; closing/recalculation/credit note | Invoice line cancellation |
+| `/contracts`、`/contracts/:id` | Contract terms, Net30, and subsequent pricing; posting/bidding/receipt at maturity | Corresponds to subscriptions and invoices |
+| `/reconciliation`、`/discrepancies/:id` |It's not just a question of what's going on. Repair/Artificial Resolution|Repair before and after revision/run|
+| `/account-migrations`, `/account-migrations/:legacyId` | Mapping, shadow comparison, backfill, readiness, owners, cutover, and stop controls | Legacy provenance and adapter view |
+| `/commands`、`/commands/:id`、`/jobs/:id` |Command/job status, results by item|The field objects generated.|
+| `/lab` |Simulated clocks, fake providers, and support failures.|Commands/operations affected|
 
-前端資料以 resource＋ID＋filters＋cursor 作 Query key，mutation 完成後失效相依查詢；金融寫入不做 optimistic success。列表搜尋 debounce 250ms，URL 保存篩選，limit 預設 25、最大 100。可見命令頁以 2 秒開始輪詢、無變化退避至 10 秒；離頁停止輪詢，回頁重新驗證。刷新失敗時保留舊資料並顯示「過期／上次更新時間」。
+The front-end data is searched by resource+ID+filters+cursor as a Query key, after the mutation has been completed; Financial writing is not an optimistic success. List searches debounce 250ms, URLs are saved, filtered, limit missing 25, up to 100. The command page starts the routing in 2 seconds, with no change to the back to 10 seconds. The page stopped questioning and returned to page re-verification. When refreshing fails, keep the old data and display "Expired/Last Update".
 
-快取舊資料僅可用於暫時性讀取故障（網路、408、429、5xx），必須標示上次成功讀取時間並停用依賴該狀態的寫入入口；401／403／404 需隱藏已快取的敏感內容並顯示對應狀態。UI state 至少覆蓋 loading、empty、loaded、stale、forbidden、not-found、error、submitting、waiting-verification。表單 double-click 防護只是 UX，真正冪等由伺服器負責。只在同一未完成意圖中保留 request key；修改 payload 或重新確認後是新意圖。
+Cache old data for temporary reading failure (network, 408, 429, 5xx) only and must indicate the time of the last successful reading and stop using the state-dependent input; 401/403/404 must hide sensitive content that has been cached and display the corresponding status. The UI state at least covers loading, empty, loaded, stale, forbidden, not-found, error, submitting, waiting-verification. Double-click form protection is only UX, and the real idempotent is the server. Only keep the request key with the same unfinished intent; It is a new intention to modify the payload or re-confirm it.
 
-`next_actions` 回傳可用 action、permission 與 blocked reason code，供 UI 顯示說明；執行時仍重新核對。頁面不得因權益 active 就把 UNKNOWN 付款隱藏。
+`next_actions` relay actions, permissions and blocked reason codes for the UI to display; It is still in operation and re-checked. The page must not hide UNKNOWN payments because entitlement active.
 
-## 3. Session 與權限
+## 3. Session and Authorities
 
-使用者已指定採用 `.env` 的單一管理帳號密碼，取代一次性 bootstrap。新增 `/admin/login`，包含帳號、密碼、登入按鈕、送出中與驗證失敗狀態。帳號使用 autocomplete=username，密碼使用 type=password／autocomplete=current-password；支援 Enter 送出，登入成功導回同站原頁面，禁止外部 redirect URL。
+The user has specified a single management account password using `.env` to replace a one-time bootstrap. Added `/admin/login`, containing account numbers, passwords, login buttons, dispatch and verification failure status. The account uses autocomplete=username and the password is type=password/autocomplete=current-password; It supports Enter sending out, logging in successfully redirecting the original page of the same site, and banning external redirect URLs.
 
-設定鍵為 `BILLFORGE_ADMIN_USERNAME`、`BILLFORGE_ADMIN_PASSWORD`，可選的 `BILLFORGE_ADMIN_CAPABILITIES` 用於收緊能力且須包含 `read`。新增 `lab admin --env-file .env commerce.db provider.db [127.0.0.1:8080]`；預設讀目前工作目錄的 `.env`，已明確設定的 process environment 同名鍵優先。使用 `godotenv` 的 map 解析器保留 quoted value／特殊字元，不將整份檔案逐項列入 log。帳號 1–64 字、不可含控制字元；密碼 12–72 UTF-8 bytes（bcrypt 的明確輸入限制），建議至少 16 字元。缺少、空白或格式錯誤時啟動失敗，不提供預設帳密。
+The setting key is `BILLFORGE_ADMIN_USERNAME`, `BILLFORGE_ADMIN_PASSWORD`, and the option `BILLFORGE_ADMIN_CAPABILITIES` is for tightening and must contain `read`. In addition to the `lab admin --env-file .env commerce.db provider.db [127.0.0.1:8080]`, the `lab admin --env-file .env commerce.db provider.db [127.0.0.1:8080]` was added. The `.env`, which is missing from the current workbook, has clearly set the process environment with the same name as the priority key. The map analyzer using `godotenv` retains the quoted value/special characters and does not log the entire file individually. The number 1 is 64 characters, not containing control characters; The code is 12x72 UTF-8 bytes (bcrypt has explicit input restrictions), suggesting at least 16 characters. Lack, blank, or format error failure to boot, without providing a missing log seal.
 
-Go 啟動時以 `golang.org/x/crypto/bcrypt` cost 12 產生記憶體中的 salted hash，登入時驗證 hash；不把 plaintext 寫進 SQLite 或任何 response。`.env` 本身仍保存使用者指定的密碼，因此實作要忽略 `.env`／`.env.*`，只允許提交不含有效憑證的 `.env.example`，並在操作文件說明本機檔案權限。密碼不能使用 `VITE_` 前綴、不能進入前端 build-time env、localStorage、URL 或 log。不能宣稱 Go process memory 已安全抹除 plaintext。
+When Go is started, `golang.org/x/crypto/bcrypt` cost 12 generates a salted hash in memory, and authenticates the hash when logged in; Do not write plaintext into SQLite or any response. `.env` itself still retains the user-defined password, so in practice, `.env`/`.env.*` is ignored, and only `.env.example` that does not contain a valid certificate is allowed to be submitted, and the operating document specifies the permissions of the native file. The password cannot use the `VITE_` prefix, cannot access the build-time env, local storage, URL or log at the front end. It is not possible to claim that the Go process memory has safely deleted plaintext.
 
-session 閒置 30 分鐘、最長 8 小時，登出撤銷；重啟 server 後 session 失效。更改 `.env` 的帳密須重啟，會同時撤銷既有 session。忘記密碼由本機擁有者更新 `.env` 後重啟；不新增註冊、忘記密碼郵件或帳號管理功能。此輪只有規劃，不建立 `.env` 或任何實際帳密。
+session suspended for 30 minutes, up to 8 hours, cancellation cancellation; Reset server after session failed. Changes to the `.env` account password must be restarted and the existing session can be cancelled. Forget the password after the `.env` has been updated by the homeowner; No registration, password, email or account management features are added. This is a planning-only round, not creating `.env` or any actual accounting seals.
 
-cookie：HttpOnly、SameSite=Strict、Path=/admin；正式 HTTPS 時 Secure。只接受已設定 Host，防止不預期 Host 指向本機服務。所有寫入包含 session 綁定的 CSRF token 並核對 Origin，JSON content type，預設 request body 最大 1 MiB；沒有 CORS wildcard。登入也核對 Origin／Host。登入前 GET `/session/csrf` 取得與短期 pre-auth cookie 綁定的 nonce，POST `/session` 驗證成功後輪換 session ID 與 CSRF token，防止沿用未登入 session。未知帳號也做 dummy bcrypt 驗證，統一顯示「帳號或密碼錯誤」。每個來源／帳號組合 15 分鐘內最多 5 次失敗，並設每程序每分鐘最多 20 次登入驗證，單次只執行一個 bcrypt 驗證；超限回 429 和 retry-after，不永久鎖帳。這些本機限流狀態在重啟後重置。一般業務讀取也需 session。
+cookie：HttpOnly、SameSite=Strict、Path=/admin； Secure on official HTTPS. Accept only Host that is set up to prevent an unexpected Host from pointing to the host service. All entries contain session-bound CSRF tokens and verify Origin, JSON content type, missing request body up to 1 MiB; No CORS wildcard. Login also verifies Origin/Host. Before logging in, GET `/session/csrf` obtained nonce tied to short-term pre-auth cookie, POST `/session` successfully verified the session ID and CSRF token after rotation to prevent unlogged sessions along the way. An unknown account is also a dummy bcrypt verifier, which uniquely displays "account or password errors". Each source/account combination fails a maximum of 5 times in 15 minutes, and each process has a maximum of 20 login verifications per minute, running only one bcrypt verification at a time; Extreme back 429 and retry-after, not permanently locked accounts. These state-of-the-art flow limits are reset after rebooting. General business readings also require session.
 
-權限能力：`read`、`subscription.manage`、`finance.adjust`、`catalog.publish`、`migration.manage`、`reconciliation.repair`、`operations.run`、`usage.manage`、`contract.manage`、`lab.control`。目前單一 operator 擁有全部能力；測試 fixture 可配置不同 actor 與 capability，不開發帳號管理 UI。
+The following are the permissions: `read`, `subscription.manage`, `finance.adjust`, `catalog.publish`, `migration.manage`, `reconciliation.repair`, `operations.run`, `usage.manage`, `contract.manage`, `lab.control`. Currently, a single operator has full capacity; The test fixture can be configured with different actors and capabilities without developing an account management UI.
 
-本機 actor 使用穩定 `local-admin` ID，與隨機 session ID 分離；重新登入及重啟不改變命令的冪等 scope。worker 使用 server 端 capability registry，不能依賴已經過期的 cookie 保存授權。
+The live actor uses a stable `local-admin` ID to separate it from a random session ID; Re-login and restart without changing the idempotent scope of the command. worker uses the server-side capability registry, and cannot rely on expired cookie storage permissions.
 
-每個 command admission 及 worker 執行前檢查 capability；管理命令只允許原 actor 或相應操作權限者讀取，`read` 能看到去敏的共享業務結果。撤銷權限停止未執行命令；已提交的金融事實及恢復查證由系統繼續完成，不能因 session 過期遺失義務。
+the ability to check before each command admission and worker runs; The management command only allows the original actor or the corresponding operator to read, and `read` can see sensitive shared business results. withdrawal of permission to stop the non-operating command; The submitted financial facts and recovery verification will continue to be completed by the system and cannot be lost due to the expiration of the session.
 
-## 4. 共用 API 契約
+## 4. Shared API agreements
 
-session 路由為 GET `/session/csrf`（登入前 nonce）、POST `/session`（username/password）、GET `/session`（目前身分與權限）、DELETE `/session`（登出，需 CSRF）。登入前只開放 login page、必要靜態資產、nonce 與建立 session，其他 GET、POST 全部受管理 session 保護。金額與量值使用十進位整數字串，禁止小數、exponent、NaN、負值超出欄位政策及超出 int64 範圍。費率為 `rate_num`／`rate_den` 字串，分母正值。revision 與寫入命令的 period_index 也用十進位整數字串；頁數／limit 是有界 JSON integer。時間為 RFC3339 UTC，允許 0–9 位小數秒且必須落在 int64 Unix nanoseconds 可表示的範圍；超精度或超範圍直接拒絕，不截斷。currency 沿用 MVP 的 USD，不能靠前端傳入新幣別擴充政策。
+session routing is called GET `/session/csrf` ((nonce before logging in)  POST `/session`(username/password) GET `/session` (current identity and permissions)  DELETE `/session` (cancelled, CSRF required)  Only login pages, static assets, nonce and session creation, other GETs, POSTs are all protected by session management before logging in. Quantities and values use ten-digit integers, which prohibit sub-numbers, exponents, NaN, negative values beyond the field policy and beyond the int64 range. The interest rate is `rate_num`/`rate_den` string, the denominator is positive. revision and the period_index for writing the command are also integers with ten digits; The number of pages/limit is a bounded JSON integer. The time is RFC 3339 UTC, which allows for 0 to 9 bits of seconds and must fall within the range of int64 Unix nanoseconds to be represented; In addition to the above, it is important to note that this is not the case with the super-precision or the super-range. The currency uses the MVP's USD, and cannot be introduced to new currency expansion policies from the front end.
 
-讀取 envelope：`{data, as_of, source_revision?, next_cursor?}`。固定排序 `(created_at,id)` 或資源指定的穩定鍵；cursor 綁定 filters 與排序、不提供任意 SQL sort。多頁資料不是同一全域 snapshot；批次影響範圍不能來自逐頁瀏覽，必須由 preview/job snapshot 固定。
+In the envelope: `{data, as_of, source_revision?, next_cursor?}`. the fixed sequence `(created_at,id)` or the resource-determined stability key; The cursor binds the filters to the sequence and does not provide any SQL sort. Multi-page data is not the same full-domain snapshot; The impact range of the batch cannot come from page-by-page browsing and must be fixed by preview/job snapshot.
 
-錯誤 envelope：`{error:{code,message,field_errors?,retryable,current_revision?},request_id,command_id?}`。400 格式；401 session；403 權限／CSRF；404 物件或未知 API 路徑；405 API 方法不支援並回 `Allow`；409 狀態、revision、key 或 preview 衝突；422 業務欄位無效；429 有界節流；500/503 系統或暫時不可用。不回傳 SQL、stack 或憑證。
+The wrong envelope:`{error:{code,message,field_errors?,retryable,current_revision?},request_id,command_id?}`400 format; 401 session； 403 Authorization/CSRF; 404 object or unknown API path; 405 API methods do not support back and forth.`Allow`409 State, revision, key or preview conflicts; 422 Business fields are invalid; 429 There is a boundary flow; 500/503 system or temporarily unavailable. No SQL, stack or credentials.
 
-`request_id` 由伺服器逐 HTTP 請求產生，並同時放在 `X-Request-ID` 回應 header 與錯誤 JSON；不能接受客戶端自行指定的 ID。命令保存受理請求 ID，後續稽核事件保存執行該階段的請求 ID；背景恢復沿用原命令的受理 ID。舊資料在 v8 升級後仍為 `NULL`，不可補上虛構的歷史來源。
+`request_id` is generated by a server-by-server HTTP request and simultaneously placed in the `X-Request-ID` response header with the error JSON; It is not possible to accept the user's own ID. The command saves the receiver request ID, and the subsequent audit event saves the request ID running at this stage; Background recovery using the original command receiver ID. The old data, which remained `NULL` after the v8 upgrade, is irreplaceable as a fictional historical source.
 
-命令受理時若無法確認儲存結果，回 500 `COMMAND_ADMISSION_UNKNOWN`、`retryable: true`，不提供未確認的 `command_id`。客戶端必須保留原 payload 和冪等鍵，重新登入後也以同一鍵查證或重送；不得因 500 產生新鍵。命令已受理但執行暫時失敗時，回 503 `COMMAND_PENDING_RETRY` 並附原 `command_id`，後續查證與重試仍沿用原命令。
+When the command is received, if the saved results are not confirmed, return 500 `COMMAND_ADMISSION_UNKNOWN`、 `retryable: true`, without providing the unconfirmed `command_id`. The client must retain the original payload and idempotency keys, verify or resend with the same key after logging in again; It's not possible to create a new key for 500. When the command is accepted but temporarily fails to run, return 503 `COMMAND_PENDING_RETRY` and attach the original `command_id`, with subsequent verification and retry still following the original command.
 
-所有 command POST 都需 `Idempotency-Key`，金融與批次操作另需 `preview_id`；原因 `reason` 最長 500 字。actor、request ID、實際執行時間從伺服器取得。拒絕未知欄位。canonical payload hash 由已解析的 typed DTO 算出，正規化數字／時間／預設值，包含 kind、target 與 preview ID。
+All command POSTs require `Idempotency-Key`, while financial and bulk operations require `preview_id`; `reason` is 500 words long. Actor, request ID, actual running time from the server. Refusing unknown fields. The canonical payload hash is calculated by the typed DTO that has been analyzed, with the default number/time/default, including the kind、target and preview ID.
 
-所有 command 首次受理回 `202 {command_id,status,location}`；相同 key、相同 actor、相同 canonical payload 回相同 command（完成時可回 200），即使原 preview 已過期或 revision 已改變也優先回既有結果。不同 payload 回 `409 IDEMPOTENCY_CONFLICT`。不能先做依賴當前狀態的預覽計算，再查冪等紀錄。
+All commands are first received back to `202 {command_id,status,location}`; The same key, the same actor, the same canonical payload, back to the same command, and back to 200 when completed, even if the original preview has expired or the revision has changed. It's the same as the `409 IDEMPOTENCY_CONFLICT`. It is not possible to do a preview calculation based on the current state, and then look at the idempotent record.
 
-GET command 回 `status`、`result_refs`、`domain_outcome`、`error`、`created_at/updated_at`；capture 被 provider 明確拒絕可為命令已完成但 `domain_outcome=declined`，UI 仍顯示付款失敗。`failed` 表示管理命令本身未完成；已可能產生外部效果時先 `waiting_verification`。
+Get the command back.`status`、`result_refs`、`domain_outcome`、`error`、`created_at/updated_at`Capture was explicitly denied by the provider that the command could have been completed, but`domain_outcome=declined`The UI still shows a failure to pay.`failed`Indicates that the management command itself is not completed; It's not the first time we've had an external effect.`waiting_verification`。
 
-### 4.1 讀取資源
+### 4.1 Reading resources
 
-GET `/overview`；`/quotes`、`/quotes/{id}`；`/customers`、`/customers/{id}`；`/subscriptions`、`/subscriptions/{id}` 及其 `/periods`、`/timeline`、`/entitlement`；`/invoices`、`/invoices/{id}`；`/credits`、`/credits/{id}`；`/payments`、`/payments/{id}`；`/refunds`、`/refunds/{id}`；`/prices`、`/prices/{id}`；`/meters`；`/catalog-selections`；`/price-migrations`、`/price-migrations/{id}` 及 `/items`；`/usage-events`；`/usage-periods/{subscriptionId}/{periodIndex}`；`/contracts`、`/contracts/{id}`；`/reconciliation-runs`、`/reconciliation-runs/{id}`；`/discrepancies`、`/discrepancies/{id}`；`/account-migrations`、`/account-migrations/{legacyId}` 及 `/provenance`、`/shadows`、`/readiness`、`/entitlements/{subscriptionId}`；`/commands`、`/commands/{id}`；`/jobs`、`/jobs/{id}`；`/outbox`；`/lab/status`、`/lab/provider-captures`、`/lab/provider-refunds`（lab.control，分頁）。
+GET endpoints: `/overview`; `/quotes`, `/quotes/{id}`; `/customers`, `/customers/{id}`; `/subscriptions`, `/subscriptions/{id}` and their `/periods`, `/timeline`, `/entitlement`; `/invoices`, `/invoices/{id}`; `/credits`, `/credits/{id}`; `/payments`, `/payments/{id}`; `/refunds`, `/refunds/{id}`; `/prices`, `/prices/{id}`; `/meters`; `/catalog-selections`; `/price-migrations`, `/price-migrations/{id}` and `/items`; `/usage-events`; `/usage-periods/{subscriptionId}/{periodIndex}`; `/contracts`, `/contracts/{id}`; `/reconciliation-runs`, `/reconciliation-runs/{id}`; `/discrepancies`, `/discrepancies/{id}`; `/account-migrations`, `/account-migrations/{legacyId}` and `/provenance`, `/shadows`, `/readiness`, `/entitlements/{subscriptionId}`; `/commands`, `/commands/{id}`; `/jobs`, `/jobs/{id}`; `/outbox`; `/lab/status`, `/lab/provider-captures`, `/lab/provider-refunds` (paginated; `lab.control` required).
 
-`GET /price-migrations/{id}` 回傳批次欄位及 `ItemCount`、`PendingCount`、`AppliedCount`、`ConflictedCount`、`SkippedCount`，不內嵌無界項目陣列。`GET /price-migrations/{id}/items` 接受 `limit`（預設 20，範圍 1–100）、`status`（`pending`、`applied`、`conflicted`、`skipped`）與 `cursor`；回傳 `items`、`next_cursor`、`observed_at`。游標綁定批次 ID 與狀態篩選；狀態變更後需從第一頁重新查詢。金額和計數皆以精確十進位字串輸出。
+`GET /price-migrations/{id}`In the case of the recycling of batch fields and`ItemCount`、`PendingCount`、`AppliedCount`、`ConflictedCount`、`SkippedCount`It's not built into an array of endless projects.`GET /price-migrations/{id}/items`Acceptance`limit`(Lack of 20, range 1 to 100)`status`（`pending`、`applied`、`conflicted`、`skipped`(A) and`cursor`Back to you.`items`、`next_cursor`、`observed_at`The optical character binds the batch ID and the status filter; The first page of the page is searched again after the status changes. The quantity and the counting are all produced in a precise 10-digit string.
 
-列表只允許該資源適用的 customer_id、subscription_id、status、time range、ID prefix 等白名單 filters。ready/readiness 只是帶時間的讀取觀測；切換命令仍在交易內再驗證。必要欄位：
+The list only allows white-list filters such as customer_id, subscription_id, status, time range, ID prefix to be used for the resource. Ready/readiness is simply reading observations with time; The switch command is still validated in the transaction. Required fields:
 
-| DTO | 必要內容 |
+| DTO |What is needed?|
 | --- | --- |
-| quote | customer、用途、price/contract 版本、元件、fingerprint、到期、required capabilities、due_now/estimated、recurring commitment、change binding |
-| subscription | customer、actual price/checksum/seats、revision、period、scheduled intention、billing/payment/service 各自狀態、entitlement source revision |
-| invoice | original／obligation／allocated／outstanding minor、immutable lines、price/contract/usage references、更正與 credit applications |
-| credit/refund | source invoice/correction、funded amount、available/applied/reserved/refunded、currency、來源 operation；未知保留不可算可用 |
-| price | publication state、所有元件、meter、有效期間、checksum、cohort 使用情況；已發布唯讀 |
-| migration/job | frozen targets、counts 分類、逐項 revision／結果／blocked reason、pause scope；不把部分成功標全成功 |
+| quote |Customer, use, price/contract version, components, fingerprint, expiration, required capabilities, due_now/estimated, recurring commitment, change binding|
+| subscription |Customer, actual price/checksum/seats, revision, period, scheduled intention, billing/payment/service status and entitlement source revision|
+| invoice |In addition to the original/obligation/allocated/outstanding minor, immutable lines, price/contract/usage references, corrections and credit applications.|
+| credit/refund |source invoice/correction、funded amount、available/applied/reserved/refunded、currency、source operation; Unknown reserves are not available.|
+| price |the publication state, all components, meter, validity period, checksum, cohort use; Published for reading only|
+| migration/job |frozen targets, counts, revision/results/blocked reason, pause scope; It's not a success story.|
 | discrepancy | kind、expected、actual、evidence refs、source revision、run、repair/manual decisions、verification |
-| account migration | legacy/customer/beneficiary、history、read/writer owner、stopped/reason、readiness 各門檻及證據時刻 |
+| account migration |legacy/customer/beneficiary、history、read/writer owner、stopped/reason、readiness|
 
-金額欄位語意直接沿用領域 balance struct；不得以「原始額－退款」自行拼出應付餘額。來源缺漏顯示 unknown，不補 0。
+The term balance struct is used directly in the context of the quantity field. It is not allowed to write the balance of payments on its own with the "original amount - refund". Source missing shows unknown, not corrected 0.
 
-`GET /commands` 以 1–100 筆為一頁（預設 50），回傳 `items` 與 `next_cursor`；cursor 使用命令寫入順序的 rowid，新增命令不會使已讀頁重複。可用 `GET /commands/{id}` 開啟舊命令，列表頁不是全域快照。無效 cursor 回 `INVALID_CURSOR`。
+`GET /commands` with 1 ton 100 pens for one page (missing 50), retweeted `items` and `next_cursor`; The cursor uses the rowid command to write the order, and adding the command does not make the page read repeated. `GET /commands/{id}` is available to open the old command, and the list page is not a full-domain snapshot. The cursor is not working and returns to `INVALID_CURSOR`.
 
 ### 4.2 Preview
 
-POST `/previews`：`{action_id,target_id?,payload,expected_revision?}`。action_id 僅可為下表列舉，透過 typed switch 驗證，不使用反射呼叫函式。回 `preview_id,expires_at,source_versions,impact,blocking_reasons`；preview 5 分鐘有效，且不超過引用 quote 的 expiry。GET `/previews/{id}` 僅原 actor 或相應能力可查看。
+POST `/previews` accepts `{action_id,target_id?,payload,expected_revision?}`. The action ID must be listed in the table below and is validated with a typed switch, without reflective function calls. It returns `preview_id,expires_at,source_versions,impact,blocking_reasons`. A preview lasts five minutes and never beyond the referenced quote’s expiry. GET `/previews/{id}` is available only to the original actor or a user with the corresponding capability.
 
-preview 不保留付款／退款額度、不呼叫 provider、不執行領域寫入；唯一寫入是預覽紀錄。其內容保存 canonical intent、來源版本、金額及逐項目標，確認命令從伺服器紀錄取得，不信任瀏覽器回傳的總額。
+preview not retaining payment/return amounts, not calling providers, not running domains; The only entry is a preview record. The content preserves the canonical intent, source version, amount, and individual objectives, confirming the total number of commands from server records and untrusted browsers retransmitted.
 
-金額敏感命令執行時在同一交易重新計算：退款、credit、更正必須符合確認的確切金額；期中升級允許按原政策重算後降低、不可超過確認上限；新增項目、價格、席次、帳期或生效範圍改變一律 `409 PREVIEW_STALE`。價格發布確認的是完整 canonical spec/checksum。排程確認的是實際未來生效時的選價；與既有 quote 價格不一致就拒絕。
+When the amount-sensitive command is running, it is recalculated in the same transaction: refunds, credits, corrections must be in line with the exact amount confirmed; Medium-term upgrades are allowed to be reduced after the original policy is recalculated and not exceed the confirmed ceiling; Add a change in the item, price, seat, billing period or scope of `409 PREVIEW_STALE`. The price release confirms the full canonical spec/checksum. Scheduling confirms the actual catalog selection when it comes into effect in the future; The price of the quoted shares is not consistent with the quoted prices.
 
-C02 預覽若引用已過期報價，回 `409 QUOTE_EXPIRED`，不建立接受命令或付款義務。接受頁顯示原報價與到期原因，並提供帶入原客戶的新報價入口；新報價必須重新計價，不延長原報價。
+C02 preview Refer to `409 QUOTE_EXPIRED` for expired offers, without creating a command or payment obligation. Accepting the page showing the original offer and the reason for the expiry and providing new offer inputs to the original customer; The new offer must be recalculated and not renewed.
 
-C03／C04 預覽若報價 ID、綁定 Fingerprint、目標訂閱或變更方式不相符，回 `409 CHANGE_QUOTE_BINDING_MISMATCH`，不建立預覽或命令。畫面須指出綁定錯配，讓操作員從正確的報價詳情重新進入。
+C03/C04 preview If the offer ID, binding Fingerprint, target subscription or change mode does not match, return to `409 CHANGE_QUOTE_BINDING_MISMATCH` without creating a preview or command. The screen should indicate the wrong tie-in to allow the operator to re-enter the offer from the correct details.
 
-C01 建立變更報價時，若綁定的訂閱 revision 已改變，命令以 `CHANGE_QUOTE_REVISION_CHANGED` 失敗；報價與綁定在同一交易回滾，不產生成功收據。C03／C04 預覽若綁定或訂閱 revision 已改變，回 `409 CHANGE_QUOTE_REVISION_CHANGED`；若報價價格版本已非目前選價，回 `409 CHANGE_QUOTE_PRICE_SUPERSEDED`。兩者均不建立預覽或命令，介面分別指出需依最新訂閱狀態或最新價格重新報價。
+C01 When creating a change bid, if the bound subscription revision has changed, the command failed with `CHANGE_QUOTE_REVISION_CHANGED`; The bid and the bond are rolled back on the same transaction without a successful receipt. C03/C04 preview If the binding or subscription revision has changed, go to `409 CHANGE_QUOTE_REVISION_CHANGED`; If the price version is no longer a current catalog selection, please return to `409 CHANGE_QUOTE_PRICE_SUPERSEDED`. Neither created a preview or command, and the interface indicated that it would be necessary to re-offer according to the latest subscription status or price.
 
-批次 preview 固定 target IDs＋source versions＋預期金額；job 不得執行後來才符合條件的對象。明確逐項衝突可留待新預覽，不能偷偷擴大 batch。C13／C30／C32／C44／C45 每批最多固定 100 個候選；預覽讀取第 101 個候選以判斷是否有剩餘項目，只將前 100 個寫入固定成員。五種工作皆依前一個已建立工作的固定清單最後一項輪轉，必要時回到開頭，避免衝突或待查證項反覆阻擋其他候選。僅重開預覽不移動游標。C32 已建立的 capture outbox 會退出候選集合。preview impact 的 `has_more_candidates` 為字串 `true`／`false`，表示預覽當下仍有本批之外的候選項目；UI 必須提醒操作員建立新批次。
+Fixed target IDs+source versions+ expected amount; Job cannot be run until later than the eligible subject. Clear conflict-by-conflict can be kept for a new preview, and cannot be stealthily expanded. C13/C30/C32/C44/C45 A maximum of 100 candidates per batch is fixed; Preview read the 101st candidate to determine if there are any remaining projects, and write only the first 100 members as permanent members. All five jobs are in the final round of the previous fixed list of jobs created, returning to the beginning when necessary, to avoid conflict or to prevent other candidates from repeatedly obstructing verification items. Only re-open the preview without moving the lights. C32's capture outbox will be removed from the candidate collection. The `has_more_candidates` of the preview impact is the string `true`/`false`, indicating that the preview currently has candidates outside this batch; The UI must remind the operator to create new batches.
 
-### 4.3 命令清單
+### 4.3 List of commands
 
-下表的 `route` 記錄原先規劃的資源語意路徑。已實作的寫入介面統一為 `POST /admin/api/commands`，由 `action_id`、`target_id` 和 typed payload 選擇表中的動作；需要預覽時先呼叫 `POST /admin/api/previews`。單一命令入口共用 session、CSRF、能力、冪等與收據處理，實際 UI 路徑與證據見[動作盤點](../implementation/web-admin-action-audit.md)。R=需 preview；N=不需確認預覽（仍須授權、冪等及領域檢查）。表中的 inputs 不重複列 reason、preview_id、expected_revision 等共用欄位；`target_id` 必須對應表中資源對象。
+`route` below records the originally planned resource meaning path. The written interface unified by `POST /admin/api/commands`, and the movements in the `action_id`、 `target_id` and typed payload selection tables; Call `POST /admin/api/previews` if you need a preview. Single command input shared session, CSRF, capabilities, idempotent and receipt processing, actual UI path and evidence see [The Action Plan](../implementation/web-admin-action-audit.md). R = Preview required; N = No preview confirmation, but still need to be authorized, idempotent and field checked. Inputs in the table do not duplicate common fields such as reason, preview_id, expected_revision; `target_id` must be a resource object in the corresponding table.
 
-| ID | route | inputs／領域服務 | 權限 | 預覽 |
+| ID | route |Input/Department Services|The authorization.|Preview|
 | --- | --- | --- | --- | --- |
-| C01 | `/quotes` | customer_id；互斥的 plan_id＋cohort＋seats 或 contract_version_id＋seats；可選 change_subscription_id＋mode＋revision。`CreateQuoteForCohort/CreateContractQuote/BindChangeQuote` | subscription.manage；合約另需 contract.manage | N |
-| C02 | `/quotes/{id}/accept` | fingerprint；`AcceptQuote/AcceptContractQuote`，拒絕 change quote | subscription.manage；合約另需 contract.manage | R |
-| C03 | `/subscriptions/{id}/schedule-plan` | quote_id、binding fingerprint、revision；從 quote 取 plan/seats。`ScheduleNextPlanAtPrice` | subscription.manage | R |
-| C04 | `/subscriptions/{id}/upgrade` | quote_id、binding fingerprint、revision；`RequestImmediateProUpgradeAtPrice` | subscription.manage | R |
-| C05 | `/subscriptions/{id}/cancel` | revision；`ScheduleCancel` | subscription.manage | R |
-| C06 | `/subscriptions/{id}/resume` | revision；`ResumeCancel` | subscription.manage | R |
-| C07 | `/invoices/{id}/payments` | amount_minor；`CreatePayment` | finance.adjust | R |
-| C08 | `/payments/{id}/retry` | 原 operation ID 在交易內解析 invoice_id 並核對確定失敗；`RetryFailedPayment` 實際接收 invoice_id | finance.adjust | R |
-| C09 | `/payments/{id}/dispatch` | 固定 operation ID；`DispatchCapture` | finance.adjust | R |
-| C10 | `/payments/{id}/reconcile` | 原操作；`ReconcilePayment` | finance.adjust | N |
-| C11 | `/invoices/{id}/reductions` | reduction_minor、reason；`PostReduction` | finance.adjust | R |
-| C12 | `/credits/{id}/applications` | invoice_id、amount_minor；`ApplyCredit` | finance.adjust | R |
-| C13 | `/jobs/change-corrections` | preview 固定 change IDs；拆解 `RunChangeCorrections` | finance.adjust | R |
-| C14 | `/changes/{id}/resolve-unfulfilled` | change ID；`ResolveUnfulfilledImmediateChange` | finance.adjust | R |
-| C15 | `/credits/{id}/refunds` | amount_minor；`ReserveRefund` | finance.adjust | R |
-| C16 | `/refunds/{id}/dispatch` | 固定 refund ID；由 `DispatchRefundNext` 抽出按 ID 執行 helper | finance.adjust | R |
-| C17 | `/refunds/{id}/reconcile` | 原退款；`ReconcileRefund` | finance.adjust | N |
-| C18 | `/prices/pro` | ProPriceSpec；`PublishProPrice` | catalog.publish | R |
-| C19 | `/meters` | id、source、unit、schema_version；`RegisterMeter` | catalog.publish | R |
-| C20 | `/prices/metered` | MeteredPriceSpec；`PublishMeteredPrice` | catalog.publish | R |
-| C21 | `/catalog-selections` | plan_id、cohort、effective_at、price_version_id；`SelectCatalogPrice` | catalog.publish | R |
-| C22 | `/price-migrations` | id、cohort、target_price_version_id、固定 subscription_ids；`PreviewPriceMigration/PlanPriceMigration` | migration.manage | R |
-| C23 | `/price-migrations/{id}/pause` | batch ID；`PausePriceMigration` | migration.manage | N |
-| C24 | `/price-migrations/{id}/items/{subId}/skip` | 明確對象與理由；`SkipPriceMigrationItem` | migration.manage | R |
-| C25 | `/price-migrations/{id}/resume` | 重查後的 batch；`ResumePriceMigration` | migration.manage | R |
-| C26 | `/usage-events` | source、event_id、subscription_id、meter_id、occurred_at、quantity；`RecordUsage` | usage.manage | N |
-| C27 | `/usage-adjustments` | source/event_id/subscription_id、original_source/original_event_id、reverse_quantity；`RecordUsageAdjustment` | usage.manage | R |
-| C28 | `/usage-periods/{subId}/{index}/close` | cutoff；`CloseUsagePeriod` | usage.manage | R |
-| C29 | `/usage-periods/{subId}/{index}/rerate` | 帳期；`RerateUsagePeriod` | usage.manage | R |
-| C30 | `/jobs/usage-credit-notes` | preview 固定差額項目；拆解 `RunUsageCreditNotes` | finance.adjust | R |
-| C31 | `/contracts` | ContractSpec；`PublishContract` | contract.manage | R |
-| C32 | `/jobs/contract-collections` | preview 固定到期 invoices；拆解 `CollectDueContractInvoices` | finance.adjust | R |
-| C33 | `/reconciliation-runs` | as_of；`RunReconciliation` | reconciliation.repair | N |
-| C34 | `/discrepancies/{id}/repair` | discrepancy ID、來源證據；`RepairDiscrepancy` | reconciliation.repair | R |
-| C35 | `/discrepancies/{id}/manual-decisions` | decision、reason；reviewer 從 session 取得。`RecordManualDecision` | reconciliation.repair | R |
-| C36 | `/account-migrations` | legacy_account_id、customer_id、beneficiary_id、cohort、has_history；`LinkLegacyAccount` | migration.manage | R |
-| C37 | `/account-migrations/{id}/shadow-quotes` | plan_id、seats、legacy_amount_minor、legacy_currency；`ShadowQuote` | migration.manage | N |
-| C38 | `/account-migrations/{id}/shadow-entitlements` | subscription_id、legacy_status；`ShadowEntitlement` | migration.manage | N |
-| C39 | `/account-migrations/{id}/provenance` | LegacyProvenance mapping；`BackfillLegacyProvenance` | migration.manage | R |
-| C40 | `/account-migrations/{id}/provenance/{legacyInvoiceId}/resolve` | corrected mapping、decision；reviewer 從 session 取得。`ResolveLegacyProvenance` | migration.manage | R |
-| C41 | `/account-migrations/{id}/switch-read` | MigrationThresholds＋來源版本；`SwitchAccountRead` | migration.manage | R |
-| C42 | `/account-migrations/{id}/switch-writer` | MigrationThresholds＋來源版本；`SwitchAccountWriter` | migration.manage | R |
-| C43 | `/account-migrations/{id}/stop` | reason；`StopAccountMigration` | migration.manage | R |
-| C44 | `/jobs/renewals` | preview 固定到期 subscriptions＋帳期；拆解 `RunRenewals` | operations.run | R |
-| C45 | `/jobs/entitlement-refresh` | 固定 subscriptions；拆解 `RefreshEntitlements`，沿用來源事實 | operations.run | R |
-| C46 | `/lab/clock` | UTC instant 或 mode=real；clock revision | lab.control | R |
-| C47 | `/lab/payment-decisions` | operation_id、status=`succeeded`或`definitively_failed`；`SetFakePaymentDecision` | lab.control | R |
-| C48 | `/lab/refund-decisions` | refund_id、status=`succeeded`或`definitively_failed`；`SetFakeRefundDecision` | lab.control | R |
-| C49 | `/lab/faults` | operation kind/ID、mode=`lost_response`或`crash_after_provider`，一次性 fault ticket | lab.control | R |
+| C01 | `/quotes` | customer_id； This is a list of the most commonly used names for the name of the company. You can select change_subscription_id+mode+revision. `CreateQuoteForCohort/CreateContractQuote/BindChangeQuote` | subscription.manage； Contract.manage is also required.| N |
+| C02 | `/quotes/{id}/accept` | fingerprint； `AcceptQuote/AcceptContractQuote`, refusing to change the quote| subscription.manage； Contract.manage is also required.| R |
+| C03 | `/subscriptions/{id}/schedule-plan` | quote_id、binding fingerprint、revision； From quote, take plan/seats. `ScheduleNextPlanAtPrice` | subscription.manage | R |
+| C04 | `/subscriptions/{id}/upgrade` | quote_id、binding fingerprint、revision； `RequestImmediateProUpgradeAtPrice` | subscription.manage | R |
+| C05 | `/subscriptions/{id}/cancel` | revision； `ScheduleCancel` | subscription.manage | R |
+| C06 | `/subscriptions/{id}/resume` | revision； `ResumeCancel` | subscription.manage | R |
+| C07 | `/invoices/{id}/payments` | amount_minor； `CreatePayment` | finance.adjust | R |
+| C08 | `/payments/{id}/retry` |The original operation ID analyzes the invoice_id in the transaction and checks for failure; `RetryFailedPayment` actually receives invoice_id| finance.adjust | R |
+| C09 | `/payments/{id}/dispatch` |Fixed operation ID; `DispatchCapture` | finance.adjust | R |
+| C10 | `/payments/{id}/reconcile` |the original operation; `ReconcilePayment` | finance.adjust | N |
+| C11 | `/invoices/{id}/reductions` | reduction_minor、reason； `PostReduction` | finance.adjust | R |
+| C12 | `/credits/{id}/applications` | invoice_id、amount_minor； `ApplyCredit` | finance.adjust | R |
+| C13 | `/jobs/change-corrections` |Preview Fixed change IDs; The `RunChangeCorrections` is being demolished.| finance.adjust | R |
+| C14 | `/changes/{id}/resolve-unfulfilled` | change ID； `ResolveUnfulfilledImmediateChange` | finance.adjust | R |
+| C15 | `/credits/{id}/refunds` | amount_minor； `ReserveRefund` | finance.adjust | R |
+| C16 | `/refunds/{id}/dispatch` |Fixed refund ID; `DispatchRefundNext` extracted the helper to run by ID.| finance.adjust | R |
+| C17 | `/refunds/{id}/reconcile` |the original repayment; `ReconcileRefund` | finance.adjust | N |
+| C18 | `/prices/pro` | ProPriceSpec； `PublishProPrice` | catalog.publish | R |
+| C19 | `/meters` | id、source、unit、schema_version； `RegisterMeter` | catalog.publish | R |
+| C20 | `/prices/metered` | MeteredPriceSpec； `PublishMeteredPrice` | catalog.publish | R |
+| C21 | `/catalog-selections` | plan_id、cohort、effective_at、price_version_id； `SelectCatalogPrice` | catalog.publish | R |
+| C22 | `/price-migrations` | id, cohort, target_price_version_id, fixed subscription_ids; `PreviewPriceMigration/PlanPriceMigration` | migration.manage | R |
+| C23 | `/price-migrations/{id}/pause` | batch ID； `PausePriceMigration` | migration.manage | N |
+| C24 | `/price-migrations/{id}/items/{subId}/skip` |clear objects and reasons; `SkipPriceMigrationItem` | migration.manage | R |
+| C25 | `/price-migrations/{id}/resume` |the batch after re-examination; `ResumePriceMigration` | migration.manage | R |
+| C26 | `/usage-events` | source、event_id、subscription_id、meter_id、occurred_at、quantity； `RecordUsage` | usage.manage | N |
+| C27 | `/usage-adjustments` | source/event_id/subscription_id、original_source/original_event_id、reverse_quantity； `RecordUsageAdjustment` | usage.manage | R |
+| C28 | `/usage-periods/{subId}/{index}/close` | cutoff； `CloseUsagePeriod` | usage.manage | R |
+| C29 | `/usage-periods/{subId}/{index}/rerate` |billing period; `RerateUsagePeriod` | usage.manage | R |
+| C30 | `/jobs/usage-credit-notes` | Preview a fixed set of adjustment items; decompose `RunUsageCreditNotes` into per-item commands. | `finance.adjust` | R |
+| C31 | `/contracts` | ContractSpec； `PublishContract` | contract.manage | R |
+| C32 | `/jobs/contract-collections` | Preview a fixed set of due contract invoices; decompose `CollectDueContractInvoices` into per-item commands. | `finance.adjust` | R |
+| C33 | `/reconciliation-runs` | as_of； `RunReconciliation` | reconciliation.repair | N |
+| C34 | `/discrepancies/{id}/repair` |Discrepancy ID, proof of source; `RepairDiscrepancy` | reconciliation.repair | R |
+| C35 | `/discrepancies/{id}/manual-decisions` | decision、reason； Reviewer from the session `RecordManualDecision` | reconciliation.repair | R |
+| C36 | `/account-migrations` | legacy_account_id、customer_id、beneficiary_id、cohort、has_history； `LinkLegacyAccount` | migration.manage | R |
+| C37 | `/account-migrations/{id}/shadow-quotes` | plan_id、seats、legacy_amount_minor、legacy_currency； `ShadowQuote` | migration.manage | N |
+| C38 | `/account-migrations/{id}/shadow-entitlements` | subscription_id、legacy_status； `ShadowEntitlement` | migration.manage | N |
+| C39 | `/account-migrations/{id}/provenance` | LegacyProvenance mapping； `BackfillLegacyProvenance` | migration.manage | R |
+| C40 | `/account-migrations/{id}/provenance/{legacyInvoiceId}/resolve` | corrected mapping、decision； Reviewer from the session `ResolveLegacyProvenance` | migration.manage | R |
+| C41 | `/account-migrations/{id}/switch-read` |MigrationThresholds+ is the source version; `SwitchAccountRead` | migration.manage | R |
+| C42 | `/account-migrations/{id}/switch-writer` |MigrationThresholds+ is the source version; `SwitchAccountWriter` | migration.manage | R |
+| C43 | `/account-migrations/{id}/stop` | reason； `StopAccountMigration` | migration.manage | R |
+| C44 | `/jobs/renewals` | Preview a fixed set of due subscriptions and billing periods; decompose `RunRenewals` into per-item commands. | `operations.run` | R |
+| C45 | `/jobs/entitlement-refresh` |Fixed subscriptions; The `RefreshEntitlements` is being demolished along with the fact that it was used as a source.| operations.run | R |
+| C46 | `/lab/clock` |UTC instant or mode=real; clock revision | lab.control | R |
+| C47 | `/lab/payment-decisions` | operation_id、status=`succeeded`or`definitively_failed`；`SetFakePaymentDecision` | lab.control | R |
+| C48 | `/lab/refund-decisions` | refund_id、status=`succeeded`or`definitively_failed`；`SetFakeRefundDecision` | lab.control | R |
+| C49 | `/lab/faults` |The operation type/ID、mode=`lost_response` or `crash_after_provider`, one-time fault ticket| lab.control | R |
 
-UI 的「送出下一筆」先列出並確認具體 operation，提交 C09／C16；不得因隊列改變改送另一筆。C49 ticket 只可由有 `lab.control` 的操作者在該操作派送時使用；普通金融頁不接受任意 fault 字串。
+The UI "send next" lists and confirms the specific operation, submitting C09/C16; It is not possible to change the queue to another one. The C49 ticket can only be used by operators with `lab.control` when the operation is dispatched; Normal financial pages do not accept any fault strings.
 
-所有 preview 需在首次開始執行前仍有效；重播已提交結果優先查 receipt，不重驗 expiry。job 在有效期內確認並持久化固定 membership 後，不因執行時間超過 preview 期限中途擴大或撤回範圍，各項目仍必須做來源與金額檢查。未開始的過期命令回 PREVIEW_STALE，不能默默延長。
+All previews must remain valid before they are first run; Re-broadcast results submitted prior to receipt, not expiry. After the validity of the fixed membership has been confirmed and sustained, the project must still be subject to source and amount checks without extending or withdrawing the scope mid-term due to running time exceeding the preview period. The uninitiated expired command returns to PREVIEW_STALE and cannot be silently extended.
 
-C43 停止後，受該帳戶控制的新增商務寫入必須拒絕，不能把停止誤報成來源 revision 變動。C02、C05、C06 新預覽回 `409 ACCOUNT_MIGRATION_STOPPED`；C03、C04 也在建立預覽時檢查寫入權。若預覽後才停止，原命令可被查回，但執行結果為 `failed/ACCOUNT_MIGRATION_STOPPED`，不得建立訂閱、取消排程或成功收據，也不得恢復已排程的取消。同一 request key 重播仍回原命令。
+After C43 has been stopped, additional business entries controlled by the account must be rejected and cannot be changed to stop misreporting as a source revision. C02、C05、C06 New preview back to `409 ACCOUNT_MIGRATION_STOPPED`; C03, C04 also checks for write permissions when creating a preview. If the preview is stopped, the original command can be checked back, but the result is `failed/ACCOUNT_MIGRATION_STOPPED`, no subscription can be created, no scheduling can be cancelled or successful receipt can be received, and no cancellation can be restored. The same request key is played back to the original command.
 
-C01 的建立與 change binding 必須在一個交易完成；contract／purchase／change 三種用途互斥。前端 capabilities 是呈現能力，不能取代 authorization。管理端實際支援的 meter／Net30 元件才能接受對應 quote。
+C01's creation and change binding must be completed in one transaction; Contract/purchase/change are used interchangeably. Front-end capabilities are presenting capabilities that cannot replace authorization. The meter/Net30 components that are actually supported by the management end can accept the corresponding quote.
 
 ### 4.4 Payload schema
 
-ProPriceSpec：`id,version,fixed_minor,seat_minor,included_tasks,usage_rate_num,usage_rate_den,effective_from`。MeteredPriceSpec：`id,plan_id,version,fixed_minor,seat_minor,meter_id,included_quantity,usage_rate_num,usage_rate_den,effective_from`。ContractSpec：`id,customer_id,version,base_price_version_id,fixed_minor,seat_minor,effective_from,effective_to,post_contract_price_version_id?`。欄位政策由領域 validator 共用；不能由 HTTP 層放寬。
+ProPriceSpec：`id,version,fixed_minor,seat_minor,included_tasks,usage_rate_num,usage_rate_den,effective_from`。 MeteredPriceSpec：`id,plan_id,version,fixed_minor,seat_minor,meter_id,included_quantity,usage_rate_num,usage_rate_den,effective_from`。 ContractSpec：`id,customer_id,version,base_price_version_id,fixed_minor,seat_minor,effective_from,effective_to,post_contract_price_version_id?`。 Field policies are shared by field validators; It's not possible to release the HTTP layer.
 
-含每席費用的已發布價格及合約，`fixed_minor + seat_minor` 必須可由 `int64` 精確表示，確保最少一席可報價。無每席費用的計量價格只需固定費用本身有效；更多席次仍於報價時逐次檢查溢位。管理表單與預覽在建立命令前拒絕不合格組合，直接領域發布路徑也執行同一限制。
+With a price and contract for each seat, `fixed_minor + seat_minor` must be specified by `int64` to ensure that at least one seat is available. The measured price without per seat fee shall be valid only if the fixed fee is itself valid; More seats are still on offer and are being checked over and over. Management forms and previews reject non-qualified combinations before creating commands, and the direct field release paths also run the same limitation.
 
-LegacyProvenance：`legacy_invoice_id,legacy_subscription_id,legacy_account_id,commerce_subscription_id,commerce_invoice_id,price_version_id`；status/evidence 由領域決定，不能從 browser 採信。MigrationThresholds：`max_quote_p95_millis,max_unknown_payments,max_open_discrepancies`；沿用目前 unknown 必須零的切換政策，即使 UI 允許查看門檻也不能放寬。
+LegacyProvenance：`legacy_invoice_id,legacy_subscription_id,legacy_account_id,commerce_subscription_id,commerce_invoice_id,price_version_id`； Status/evidence is determined by the domain and cannot be retrieved from the browser. MigrationThresholds：`max_quote_p95_millis,max_unknown_payments,max_open_discrepancies`； Following the current unknown must-zero switching policy, even the UI does not allow viewing thresholds to be loosened.
 
-publish／map 等沒有單一 subscription revision 的操作，preview 綁定完整來源 fingerprint 與相關版本；執行 transaction 重查，不虛構一個適用所有物件的 revision。
+Publish/map without a single subscription revision, preview binding the full source fingerprint to the corresponding version; Running transaction re-checking, not creating a revision that applies to all objects.
 
-## 5. 交易、命令恢復與工作模型
+## 5. Trading, command recovery and working model
 
 ```text
-typed request → auth/CSRF → 查原 request key → 解析/驗證 intent
+typed request → auth/CSRF → look up original request key → parse / validate intent
     → admission transaction：command + preview claim + audit(accepted)
-    → 單一 local worker：claim lease + 執行前權限檢查
-        → domain transaction：來源再驗證 + 業務事實 + receipt + audit
-        → provider/outbox：同一原 operation key，在 transaction 外
-        → 記錄觀測 → 更新 command 結果 → UI 輪詢
+    → single local worker：claim lease + pre-execution permission check
+        → domain transaction：revalidate source + business facts + receipt + audit
+        → provider/outbox：same original operation key, outside the transaction
+        → record observation → update command result → UI polling
 ```
 
-command：`accepted → running → succeeded | failed | waiting_verification`；waiting 只能經原 key 查證得到結果。能力政策在重啟時收緊，尚未產生效果的命令記 `failed/PERMISSION_REVOKED`；已有 provider 義務仍查證。無法安全判定跨資料庫操作是否已產生效果且尚無 receipt 時，保留 `accepted/PERMISSION_REVOKED_REVIEW`，不新啟動操作，待 receipt 或權限恢復後以原命令繼續。每次 claim 有 lease generation，舊 worker 不得以過期 generation 覆蓋新結果。第一版同程序單 worker，lease 仍用於重啟恢復；本機時間調整不能改 lease 時鐘，lease／session 用 wall clock，業務帳期用 business clock。
+command：`accepted → running → succeeded | failed | waiting_verification`； Wait can only verify the results with the default key. The command note `failed/PERMISSION_REVOKED`, which has not yet been activated, is tightened at the time of the resumption of the capability policy; Provider obligations are still verified. When it is not possible to safely determine whether a cross-database operation has taken effect and has not yet received a receipt, retain `accepted/PERMISSION_REVOKED_REVIEW`, do not restart the operation, wait for the receipt or continue with the original command after authorization is restored. Every claim has lease generation, and old workers cannot cover new results with expired generation. The first version of the same process, single worker, lease, is still used for restarting recovery; The timing of the lease can't be adjusted, the time of the lease can't be adjusted, the time of the lease/session can't be adjusted using a wall clock, the business billing period can't be adjusted using a business clock.
 
-能力撤銷後，`read` session 可以對既有 `waiting_verification` 與 `PERMISSION_REVOKED_REVIEW` 命令要求查證；執行端必須先以持久化的 operation／repair／provider control receipt 證明此路徑不會派送新操作。查證可能追加本機觀測與收據，仍需 session、Origin 與 CSRF。
+After the ability is revoked, the `read` session can verify the requirements of the existing `waiting_verification` and `PERMISSION_REVOKED_REVIEW` commands; The operating end must first receive a permanent operation/repair/provider control receipt to prove that this path will not send new operations. Verification can add native observations and receipts, but still requires session, origin and CSRF.
 
-對純本地金額寫入，將既有 public 方法抽成 `...Tx` helper，public wrapper 仍保留目前接口。新的管理 executor 擁有最外層 transaction，業務 facts、command receipt、審計一起 commit；不能在單連線 DB 的外層 transaction 中再次呼叫會 BeginTx 的方法。選定整個 admin 命令交易保證，禁止逐 endpoint 任意選弱化的「事後補紀錄」。
+For purely local amounts, the existing public method will be extracted into `...Tx` helper, the public wrapper retains the current interface. The new executive management executor has the most external transaction, business facts, command receipt, audit commit; It is not possible to call the BeginTx method again in an external transaction with a single connection to DB. Select the entire admin command transaction guarantee, prohibiting arbitrary weakening of "post-conclusion records" per endpoint.
 
-管理呼叫使用穩定 `admin:<command_id>` 作 domain request key；已存在 public requestKey 的方法沿用 key 對應，provider key 仍由原領域義務產生；沒有 key 的發布、切換、shadow、人工決議等操作，透過 command receipt 加 domain business key 避免再次生效。恢復先找 receipt；沒有 receipt 也未 commit 的本地命令可以重入。provider side effect 不能以「沒有 receipt」推斷未發生，永遠用原 operation 查證。
+Manage calls using the stable `admin:<command_id>` as the domain request key; The provider key is still generated by the obligation of the original domain; the method of the public request key already exists along key correspondence. No key release, switch, shadow, artificial resolution, etc. is required to avoid re-entry via command receipt plus domain business key. Returns the receipt first; Local commands without receipt or commit can be re-entered. The provider side effect cannot be inferred without a receipt and is verified by the original operation.
 
-payment／refund dispatch 命令選定操作 ID 後，transaction 標示合法派送狀態，提交後呼叫 fake provider，觀測落盤。response lost 或 process crash → command waiting，保持原保留與 key。查證無 terminal evidence 時繼續等待，不能釋放退款額度或新增 capture。
+After the payment/refund dispatch command selects the operation ID, the transaction marks the legitimate dispatch status, calls the fake provider and observes the landing. Response lost or process crash → command waiting, keeping the original reservation with key. The verification of no terminal evidence continues to wait and no refund amount can be released or capture added.
 
-C47/C48 會寫入另一個 provider SQLite，不能宣稱與 commerce command 同 transaction。為 fake provider 控制新增 `provider_control_receipts(command_id UNIQUE,payload_hash,target_key,result)`，與該次 decision 更新同一 provider transaction 提交；恢復先查此 receipt，不能因 capture 已經發生而把已完成設定誤報失敗。這只用於 fake provider 控制，不變更既有 capture/refund 金融事實。
+C47/C48 writes to another SQLite provider and cannot claim transaction with the commerce command. Add `provider_control_receipts(command_id UNIQUE,payload_hash,target_key,result)` to the fake provider control and submit the same provider transaction update with that decision; Restore the receipt before checking it, and do not fail the setup error report because the capture has already occurred. This is only used to control fake providers and not to change the existing capture/refund financial facts.
 
-對帳與 shadow 是觀測型命令：收集來源觀測與時間／版本後，把 evidence、結果引用與 command receipt 在 commerce transaction 提交。無法跨兩個 SQLite 取得單一原子 snapshot，必須記錄各來源觀測時間；修復仍重新核對來源，觀測 run 成功不代表資金一致。
+reconciliation with shadow is an observational command: collect source observations and time/version, then refer evidence and results to the command receipt in a commerce transaction. It is not possible to obtain a single atomic snapshot across two SQLites, and it is necessary to record the time observed by each source; Repair is still re-verified source, and observation run success does not represent consistent funding.
 
-job 固定 membership 並逐項 receipt；續約／收款／更正類不以一次全資料庫重新掃描作重試。job summary 分為 succeeded/failed/conflicted/waiting/skipped；server 正常關閉時停止 claim 新項目，進行中的效果由原操作恢復；可由 UI 暫停的是 C23 的價格遷移，初版不新增泛用 job pause 命令。管理 UI 不提供泛用重跑任意 job；金融衝突需新預覽，UNKNOWN 查原義務。
+job fixed membership and receipt per item; The renewal/receipt/correction class does not retry the entire database once. Job summary is divided into succeeded/failed/conflicted/waiting/skipped; The server stops claiming new projects when the server is normally closed, and the effect is restored by the original operation; The UI suspended the C23's price migration, with the original version not adding a general job pause command. Management UI does not provide any general-purpose over-run job; Financial conflicts require a new preview, UNKNOWN obligation to check originally.
 
-`business_time` 在一個命令開始執行時固定，preview 提供估值時刻；clock revision 改變會使尚未確認的 preview 失效。job items 保留該 job 的業務時刻。C46 與本程序的執行 gate 協調，不在一個命令途中換 clock。領域金額／revision 保護仍在 DB transaction，不能依賴前端或單 worker 來取代並行檢查。
+`business_time` is fixed at the start of a command and provides a preview of the valuation moment; Clock revision changes will disable unconfirmed previews. Job items keep the business hours of the job. C46 coordinates with the running gate of the process, not changing the clock during a command. Domain amount/revision protection is still in DB transaction and cannot rely on front-end or single worker to replace parallel checks.
 
-## 6. 擬新增資料表與遷移
+## 6. Planning to add tables and migrations
 
-| table | 核心欄位與約束 | 保存／恢復 |
+| table |Nuclear fields and constraints|Save / Restore|
 | --- | --- | --- |
-| admin_schema_migrations | version PK、checksum、applied_at | 順序執行、checksum 不符拒絕 |
-| admin_commands | id PK、actor_id、idempotency_key、kind、target、payload_json/hash、preview_id、status、business_time、clock_revision、lease_owner/generation/until、result_refs、error_code、created/updated | UNIQUE(actor_id,idempotency_key)；status CHECK；金融結果不自動清除 |
-| admin_previews | id PK、actor_id、kind、intent_hash/json、source_versions、impact_json、expires_at、claimed_command_id | immutable；一個 preview 只能綁定同一 command；過期可查不可新執行 |
-| admin_command_receipts | command_id PK/FK、domain_request_key、result_refs、committed_at | 與本地業務 transaction 同 commit；不可覆寫 |
-| admin_jobs / admin_job_items | job ID、command ID、frozen as_of；item target、source fingerprint、status、receipt、failure | UNIQUE(job_id,target_type,target_id,period_key)；凍結 membership |
-| admin_audit_events | id、command_id、actor、action、target、reason、before/after refs、request_id、wall time | append-only；不保存 secrets；保存來源引用而非複製全部金流 payload |
-| admin_lab_settings / admin_fault_tickets | clock mode/value/revision；fault target/kind/mode/claimed command | 只在 lab profile 可用；ticket 一次性與目標核對 |
-| provider_control_receipts（provider DB） | command_id PK、payload_hash、target_key、result、committed_at | 與 fake decision 更新同 transaction；供 C47/C48 查回原結果 |
+| admin_schema_migrations | version PK、checksum、applied_at |In order, the checksum is not rejected.|
+| admin_commands | id PK、actor_id、idempotency_key、kind、target、payload_json/hash、preview_id、status、business_time、clock_revision、lease_owner/generation/until、result_refs、error_code、created/updated | UNIQUE(actor_id,idempotency_key)； status CHECK； Financial results are not automatically eliminated.|
+| admin_previews | id PK、actor_id、kind、intent_hash/json、source_versions、impact_json、expires_at、claimed_command_id | immutable； A preview can only bind to the same command; Expiry checks are not new.|
+| admin_command_receipts | command_id PK/FK、domain_request_key、result_refs、committed_at |Commit with local business transactions; It's not overwritten|
+| admin_jobs / admin_job_items | job ID、command ID、frozen as_of； item target、source fingerprint、status、receipt、failure | UNIQUE(job_id,target_type,target_id,period_key)； Freeze membership|
+| admin_audit_events | id、command_id、actor、action、target、reason、before/after refs、request_id、wall time | append-only； Not keeping secrets; Save source citations instead of copying the entire Gold Stream payload.|
+| admin_lab_settings / admin_fault_tickets | clock mode/value/revision； fault target/kind/mode/claimed command |Only available in the lab profile; One-time ticket verification and target verification|
+| provider_control_receipts（provider DB） | command_id PK、payload_hash、target_key、result、committed_at |The same transaction is updated with fake decision; For C47/C48 to check the original results.|
 
-session／登入限流在本機進程記憶體，重啟即失效；command/job/audit 不因登出消失。來源 financial 表的金額與 immutable history 不做 destructive migration。schema upgrade 在啟動、接受 HTTP 前完成，單 transaction 套用新增表／索引，任何失敗保持舊 DB 可由舊 binary 開啟；事先備份 commerce/provider 配對檔案。首次執行使用新暫存 DB；升級測試使用現有 schema fixture。
+The session/login limits the memory flow in the native process, and the restart is invalid; Command/job/audit was not cancelled. Source financial table with immutable history not destructive migration. schema upgrade is completed before HTTP is accepted, with a single transaction that adds tables/indexes, and any failure to keep the old DB can be opened by the old binary; Commerce/provider matching files are backed up in advance. For the first time running with the new temporary DB; Upgrade testing using existing schema fixture.
 
-若新增欄位到既有表，必須兼容舊 CLI／v1 寫入（有 default／nullable 或共同 wrapper）；禁止把舊 facts 偽造為有 admin actor 的歷史。最初只讀接入可停用 admin server 回到既有 CLI；涉及新金融事實後，不以還原舊 DB 當 rollback。
+If the field is added to an existing table, it must be compatible with the old CLI/v1 type (with default/nullable or common wrapper); It is forbidden to falsify old facts as having an admin actor history. Initially read-only access can be disabled using the admin server and returned to the existing CLI; In the case of new financial facts, the old DB was not restored as a rollback.
 
-## 7. 實作前已解決的設計取捨
+## 7. Design substitution that has been solved before implementation
 
-| 問題 | 決策與代價 |
+|The question is:|Decisions and Costs|
 | --- | --- |
-| 現有 v1 沒有完整 session／RBAC | admin server 不掛載它，避免繞過管理權限；需維護獨立管理 DTO，但共用 domain |
-| 加 wrapper 後業務 commit 與 command 可能分離 | 抽 transaction helpers，receipt 同 commit；改動較多，換取可驗證的崩潰恢復 |
-| batch「全部執行」會納入預覽後的新對象 | 固定 membership＋逐項 source guard；多一層 job 表與恢復邏輯 |
-| fake clock 污染 session／lease | wall clock 與 business clock 分開，命令內固定時間；需要可注入時鐘測試 |
-| dispatch-next 可能換了目標 | preview 選定 ID，execute-by-ID；新增 refund dispatcher helper |
-| SQLite single connection 與 UI 頻繁讀取 | 有界分頁、短 transaction、單 worker、取消不可見頁面輪詢；先量測再優化，禁止複製全部 State 到 Web |
+|There is no full session/RBAC in the current version.|The admin server does not install it to avoid circumventing administrative permissions; DTOs need to be maintained independently, but shared domain|
+|After wrapper, business commits and commands may be separated.|Transaction helpers, receipts and commit; In the meantime, we're going to have to make more changes in exchange for verifiable crash recovery.|
+|The batch, "all working", will include new objects after the preview.|Fixed membership + source guard per item; Multi-level job tables and recovery logic.|
+|This is a fake clock pollution session/lease.|The wall clock is separated from the business clock and the time is fixed within the command. It's a clock test that can be injected.|
+|The next dispatch could change the target.|Preview Select ID, execute-by-ID; Added a refund dispatcher helper|
+|SQLite single connection and UI frequent readings|There are split pages, short transactions, single worker, and unseen page routines. Pre-testing and optimization, prohibiting copying all states to the Web|
 
-未在範圍：真實 PSP、稅、多幣別、總帳、公開網路部署、完整使用者生命週期、MRR/ARR、新的訂閱政策。原因均是超出現有本機 MVP 與 Web 操作層的目標。上述延期不會刪除 C01–C49 任一現有 CLI 能力。
+Not included: real PSP, taxes, multi-currency, accounts, open network deployment, full user lifecycle, MRR/ARR, new subscription policies. The reason for this is that there is an over-expression of the goal of having a native MVP and a Web operating layer. The above extension will not remove any existing CLI capabilities of C01 and C49.
 
-規模限制：一次 preview/job 最多 1,000 個目標，超出回明確錯誤並要求分批，不靜默截斷。這是本機操作界線；所有對象仍可分批操作。登入與命令限流不可消耗金融額度，也不可觸發新的付款。
+Scale limit: a maximum of 1,000 goals per preview/job, going beyond clear mistakes and requiring batch, silent interruption. It's a natural operating line; All the objects are still available for operation in batches. Login and command stream limits do not consume financial amounts and do not trigger new payments.
 
-兩個 SQLite 檔案的 schema upgrade 各自在本庫 transaction 完成，不宣稱跨庫原子性。遷移保持 additive／可重跑，admin 啟動必須等兩庫所需版本都完成；若第二庫失敗則不接受 HTTP，下一次啟動從已完成版本繼續。舊 CLI 相容性與配對檔案備份由 A05 驗證。
+The schema upgrade of the two SQLite files is done automatically in the database transaction, without claiming to be cross-database atomic. The migration remains additive/replaceable, and the administrator must complete both versions of the library until the start; If the second repository fails to accept HTTP, the next boot will continue from the completed version. The old CLI compatibility with the matching file backup was verified by A05.

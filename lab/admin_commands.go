@@ -463,9 +463,9 @@ func (l *Lab) AdminSubmitCommand(ctx context.Context, actorID, key, actionID, ta
 	}
 	if previewID != "" {
 		intentHash := adminIntentHash(actionID, targetID, canonical)
-		var previewActor, previewAction, previewTarget, savedHash, expiry, claimed string
+		var previewActor, previewAction, previewTarget, savedHash, savedSources, expiry, claimed string
 		var previewRevision int64
-		err := tx.QueryRowContext(ctx, `SELECT actor_id,action_id,target_id,intent_hash,expires_at,COALESCE(claimed_command_id,''),clock_revision FROM admin_previews WHERE id=?`, previewID).Scan(&previewActor, &previewAction, &previewTarget, &savedHash, &expiry, &claimed, &previewRevision)
+		err := tx.QueryRowContext(ctx, `SELECT actor_id,action_id,target_id,intent_hash,source_versions_json,expires_at,COALESCE(claimed_command_id,''),clock_revision FROM admin_previews WHERE id=?`, previewID).Scan(&previewActor, &previewAction, &previewTarget, &savedHash, &savedSources, &expiry, &claimed, &previewRevision)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return AdminCommand{}, false, ErrAdminPreviewStale
@@ -475,6 +475,11 @@ func (l *Lab) AdminSubmitCommand(ctx context.Context, actorID, key, actionID, ta
 		expires, err := time.Parse(time.RFC3339Nano, expiry)
 		if err != nil || previewActor != actorID || previewAction != actionID || previewTarget != targetID || savedHash != intentHash || claimed != "" || previewRevision != clockRevision || !time.Now().UTC().Before(expires) {
 			return AdminCommand{}, false, ErrAdminPreviewStale
+		}
+		if actionID == "C46" || actionID == "C47" || actionID == "C48" || actionID == "C49" {
+			if err := l.adminControlSourceCurrentTx(ctx, tx, actionID, targetID, canonical, savedSources); err != nil {
+				return AdminCommand{}, false, err
+			}
 		}
 	}
 	id, err := newID("cmd_")

@@ -244,3 +244,104 @@ func TestAdminControlCommandsRejectChangedPreviewSources(t *testing.T) {
 		}
 	})
 }
+
+func TestAdminControlCommandsRejectStaleSourcesBeforeAdmission(t *testing.T) {
+	ctx := context.Background()
+	assertStale := func(t *testing.T, l *Lab, actionID, targetID string, payload json.RawMessage, previewID string) {
+		t.Helper()
+		key := "stale-admission-" + actionID
+		command, found, err := l.AdminSubmitCommand(ctx, "local-admin", key, actionID, targetID, payload, previewID)
+		if !errors.Is(err, ErrAdminPreviewStale) || found || command.ID != "" {
+			t.Fatalf("stale %s admission: %+v found=%t err=%v", actionID, command, found, err)
+		}
+		var commands int
+		if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_commands WHERE idempotency_key=?`, key).Scan(&commands); err != nil || commands != 0 {
+			t.Fatalf("stale %s created %d commands: %v", actionID, commands, err)
+		}
+		var claimed string
+		if err := l.db.QueryRowContext(ctx, `SELECT COALESCE(claimed_command_id,'') FROM admin_previews WHERE id=?`, previewID).Scan(&claimed); err != nil || claimed != "" {
+			t.Fatalf("stale %s claimed preview %q: %v", actionID, claimed, err)
+		}
+	}
+
+	t.Run("payment decision", func(t *testing.T) {
+		l, _, _ := openTestLab(t)
+		if err := l.InitAdmin(ctx); err != nil {
+			t.Fatal(err)
+		}
+		quote, err := l.CreateQuote(ctx, "stale-admission-payment", "basic")
+		if err != nil {
+			t.Fatal(err)
+		}
+		paid, err := l.AcceptQuote(ctx, quote.ID, quote.Fingerprint, "stale-admission-payment-checkout")
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload := json.RawMessage(`{"status":"succeeded"}`)
+		preview, err := l.AdminCreatePreview(ctx, "local-admin", "C47", paid.OperationID, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.SetFakePaymentDecision(ctx, paid.OperationID, "definitively_failed"); err != nil {
+			t.Fatal(err)
+		}
+		assertStale(t, l, "C47", paid.OperationID, payload, preview.ID)
+	})
+
+	t.Run("refund decision", func(t *testing.T) {
+		l, _, _ := openTestLab(t)
+		if err := l.InitAdmin(ctx); err != nil {
+			t.Fatal(err)
+		}
+		quote, err := l.CreateQuote(ctx, "stale-admission-refund", "basic")
+		if err != nil {
+			t.Fatal(err)
+		}
+		paid, err := l.AcceptQuote(ctx, quote.ID, quote.Fingerprint, "stale-admission-refund-checkout")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.DispatchCapture(ctx, paid.OperationID, ""); err != nil {
+			t.Fatal(err)
+		}
+		credit, err := l.PostReduction(ctx, paid.InvoiceID, 1000, "refund source change", "stale-admission-refund-reduction")
+		if err != nil || len(credit.GrantIDs) != 1 {
+			t.Fatalf("reduction: %+v err=%v", credit, err)
+		}
+		refundID, err := l.ReserveRefund(ctx, credit.GrantIDs[0], 500, "stale-admission-refund-reserve")
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload := json.RawMessage(`{"status":"succeeded"}`)
+		preview, err := l.AdminCreatePreview(ctx, "local-admin", "C48", refundID, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.SetFakeRefundDecision(ctx, refundID, "definitively_failed"); err != nil {
+			t.Fatal(err)
+		}
+		assertStale(t, l, "C48", refundID, payload, preview.ID)
+	})
+
+	t.Run("fault ticket", func(t *testing.T) {
+		l, _, _ := openTestLab(t)
+		if err := l.InitAdmin(ctx); err != nil {
+			t.Fatal(err)
+		}
+		quote, err := l.CreateQuote(ctx, "stale-admission-fault", "basic")
+		if err != nil {
+			t.Fatal(err)
+		}
+		paid, err := l.AcceptQuote(ctx, quote.ID, quote.Fingerprint, "stale-admission-fault-checkout")
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload := json.RawMessage(`{"operation_kind":"payment","mode":"lost_response"}`)
+		preview, err := l.AdminCreatePreview(ctx, "local-admin", "C49", paid.OperationID, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submitControl(t, l, "stale-admission-other-fault", "C49", paid.OperationID, json.RawMessage(`{"operation_kind":"payment","mode":"crash_after_provider"}`))
+		assertStale(t, l, "C49", paid.OperationID, payload, preview.ID)
+	})
+}

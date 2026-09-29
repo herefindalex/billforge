@@ -138,6 +138,10 @@ func (l *Lab) adminControlPreviewCurrentTx(ctx context.Context, tx *sql.Tx, comm
 		}
 		return err
 	}
+	return l.adminControlSourceCurrentTx(ctx, tx, actionID, targetID, canonical, stored)
+}
+
+func (l *Lab) adminControlSourceCurrentTx(ctx context.Context, tx *sql.Tx, actionID, targetID string, canonical []byte, stored string) error {
 	current, _, err := l.adminControlSnapshot(ctx, tx, actionID, targetID, canonical)
 	if errors.Is(err, ErrConflict) || errors.Is(err, sql.ErrNoRows) {
 		return ErrAdminPreviewStale

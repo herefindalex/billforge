@@ -216,8 +216,13 @@ function ActionFormInstance({ config, session, id }: { config: ActionConfig; ses
     </Card>
     {previewInvalidated && !preview && !pending && !commandID && <Alert type="warning" showIcon className="result-card" message="輸入已變更，請重新建立預覽" />}
     {pending && !commandID && <Alert type="warning" showIcon className="result-card" message="原命令的結果尚未確認" description={<Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>用原 request key 查詢</Button>} />}
-    {createPreview.isError && !previewInvalidated && <Alert type="error" showIcon className="result-card" message="無法建立預覽" description={createPreview.error.message} />}
-    {externalAction && stalePreview && !preview && createPreview.isError && <Card title="目前操作狀態" className="result-card" extra={<Button onClick={() => void currentOperation.refetch()} loading={currentOperation.isFetching}>更新</Button>}>
+      {createPreview.isError && !previewInvalidated && <Alert type="error" showIcon className="result-card" message="無法建立預覽" description={createPreview.error.message} />}
+      {stalePreview && !preview && createPreview.error instanceof HttpError && createPreview.error.status === 409 && !externalAction && <Card title="原預覽（已失效）" className="result-card">
+        <Alert type="warning" showIcon message="目前來源不允許建立新預覽；以下僅供核對，不能送出" />
+        <Descriptions column={1} bordered size="small" items={Object.entries(stalePreview.source_versions).map(([key, value]) => ({ key: `source:${key}`, label: `原來源 ${key}`, children: value || '未設定' }))} />
+        <Descriptions column={1} bordered size="small" items={Object.entries(stalePreview.impact).map(([key, value]) => ({ key: `impact:${key}`, label: key, children: displayValue(key, value, stalePreview.impact.currency) }))} />
+      </Card>}
+      {externalAction && stalePreview && !preview && createPreview.isError && <Card title="目前操作狀態" className="result-card" extra={<Button onClick={() => void currentOperation.refetch()} loading={currentOperation.isFetching}>更新</Button>}>
       {currentOperation.isPending && <Typography.Text>正在查詢目前狀態…</Typography.Text>}
       {currentOperation.isError && <Alert type="error" showIcon message="無法讀取目前狀態" description={<Space direction="vertical"><span>{currentOperation.error.message}</span><Button onClick={() => void currentOperation.refetch()}>重試</Button></Space>} />}
       {currentOperation.data && <>

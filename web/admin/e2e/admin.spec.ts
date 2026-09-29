@@ -4550,6 +4550,8 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(detail.Runs).toHaveLength(1)
     const runID = detail.Runs[0].ID
     await page.goto(`${app.baseURL}/admin/reconciliation`)
+    await page.getByRole('textbox', { name: 'ID 前綴' }).fill(runID)
+    await page.getByRole('button', { name: '套用篩選' }).click()
     await page.getByRole('row').filter({ hasText: runID }).getByRole('button', { name: '詳情' }).click()
     await expect(page.getByRole('heading', { name: '對帳執行詳情' })).toBeVisible()
     const runPage = (await (await page.request.get(`${app.baseURL}/admin/api/reconciliation-runs/${encodeURIComponent(runID)}?limit=100`)).json()).page

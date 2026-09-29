@@ -13,6 +13,7 @@ test('reverse price migration uses a new batch and restores the old price at ren
   const complete = () => expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
   const confirmPreview = async (button: string) => {
     await page.getByRole('button', { name: '建立預覽' }).click()
+    await expect(page.getByRole('button', { name: '建立預覽' })).toBeEnabled()
     await page.getByRole('button', { name: button }).last().click()
     await page.getByRole('dialog').getByRole('button', { name: button }).click()
     await complete()

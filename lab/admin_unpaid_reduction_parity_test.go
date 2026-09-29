@@ -113,10 +113,21 @@ func TestAdminUnpaidReductionAndReplacementCollectionMatchDomain(t *testing.T) {
 		t.Fatalf("admin replacement dispatch %+v %v", dispatch, err)
 	}
 	compare("after replacement capture", 0, 8000)
-	for _, path := range []*Lab{domain, admin} {
-		if err := path.RefreshEntitlements(ctx); err != nil {
-			t.Fatal(err)
-		}
+	if err := domain.RefreshEntitlements(ctx); err != nil {
+		t.Fatal(err)
+	}
+	refreshPayload := json.RawMessage(`{}`)
+	refreshPreview, err := admin.AdminCreatePreview(ctx, "local-admin", "C45", "", refreshPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresh, replay, err := admin.AdminSubmitCommand(ctx, "local-admin", "admin-replacement-entitlement-refresh", "C45", "", refreshPayload, refreshPreview.ID)
+	if err != nil || replay {
+		t.Fatalf("submit C45: command=%+v replay=%t err=%v", refresh, replay, err)
+	}
+	refresh, err = admin.AdminExecuteCommand(ctx, refresh.ID)
+	if err != nil || refresh.Status != "succeeded" {
+		t.Fatalf("execute C45: command=%+v err=%v", refresh, err)
 	}
 	left := snapshot(t, domain, domainPurchase.SubscriptionID)
 	right := snapshot(t, admin, adminPurchase.SubscriptionID)
@@ -149,5 +160,27 @@ func TestAdminUnpaidReductionAndReplacementCollectionMatchDomain(t *testing.T) {
 		if err := path.lab.provider.db.QueryRowContext(ctx, `SELECT amount_minor FROM captures WHERE provider_key=?`, newKey).Scan(&newAmount); err != nil || newAmount != 8000 {
 			t.Fatalf("%s replacement provider amount=%d err=%v", path.name, newAmount, err)
 		}
+	}
+	for _, item := range []struct {
+		command                        AdminCommand
+		key, action, target, previewID string
+		payload                        json.RawMessage
+	}{
+		{reduction, "admin-unpaid-reduction", "C11", adminPurchase.InvoiceID, reductionPreview.ID, reductionPayload},
+		{payment, "admin-replacement-payment", "C07", adminPurchase.InvoiceID, paymentPreview.ID, paymentPayload},
+		{dispatch, "admin-replacement-dispatch", "C09", paymentRefs.OperationID, dispatchPreview.ID, json.RawMessage(`{}`)},
+		{refresh, "admin-replacement-entitlement-refresh", "C45", "", refreshPreview.ID, refreshPayload},
+	} {
+		replayed, same, err := admin.AdminSubmitCommand(ctx, "local-admin", item.key, item.action, item.target, item.payload, item.previewID)
+		if err != nil || !same || replayed.ID != item.command.ID || replayed.Status != "succeeded" {
+			t.Fatalf("%s replay changed the result: command=%+v replay=%t err=%v", item.action, replayed, same, err)
+		}
+	}
+	var receipts int
+	if err := admin.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id IN (?,?,?,?)`, reduction.ID, payment.ID, dispatch.ID, refresh.ID).Scan(&receipts); err != nil || receipts != 4 {
+		t.Fatalf("admin command receipts=%d err=%v", receipts, err)
+	}
+	if got := captureCount(t, admin); got != 1 {
+		t.Fatalf("command replay created another provider capture: %d", got)
 	}
 }

@@ -3569,6 +3569,59 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C31'")).toBe(initialContractCommands)
   })
 
+  test('price publication preserves a minor amount above the JS safe integer', async ({ page }) => {
+    await signIn(page)
+    const priceID = `pro_large_minor_${randomUUID().replaceAll('-', '')}`
+    const fixedMinor = '9007199254740993'
+    const version = String(count('SELECT COALESCE(MAX(version), 0) FROM price_versions WHERE plan_id=?', 'pro') + 1)
+    const effective = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const before = count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C18'")
+    let previewRequests = 0
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().endsWith('/admin/api/previews')) previewRequests += 1
+    })
+
+    await page.goto(`${app.baseURL}/admin/prices/pro/new`)
+    for (const [label, value] of [
+      ['價格版本 ID', priceID],
+      ['版本號', version],
+      ['固定金額（最小單位）', fixedMinor],
+      ['每席金額（最小單位）', '1'],
+      ['包含任務量', '0'],
+      ['超額費率分子', '1'],
+      ['超額費率分母', '1'],
+      ['生效起點（UTC）', effective],
+    ] as Array<[string, string]>) await page.getByLabel(label, { exact: true }).fill(value)
+
+    const fixedField = page.getByLabel('固定金額（最小單位）', { exact: true })
+    await fixedField.fill('9e15')
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await expect(page.getByText('固定金額（最小單位）格式不正確')).toBeVisible()
+    await fixedField.fill('-1')
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await expect(page.getByText('固定金額（最小單位）格式不正確')).toBeVisible()
+    await fixedField.fill(fixedMinor)
+    const denominator = page.getByLabel('超額費率分母', { exact: true })
+    await denominator.fill('0')
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await expect(page.getByText('超額費率分母格式不正確')).toBeVisible()
+    expect(previewRequests).toBe(0)
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C18'")).toBe(before)
+
+    await denominator.fill('1')
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await expect(page.getByText('操作預覽', { exact: true })).toBeVisible()
+    expect(previewRequests).toBe(1)
+    await page.getByRole('button', { name: '確認發布價格' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認發布價格' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+
+    expect(scalar('SELECT fixed_amount_minor FROM price_versions WHERE id=?', priceID)).toBe(fixedMinor)
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C18'")).toBe(before + 1)
+    await page.goto(`${app.baseURL}/admin/catalog/prices/${priceID}`)
+    await expect(page.getByText('USD 90,071,992,547,409.93').first()).toBeVisible()
+  })
+
   test('meter registration refuses an older conflicting schema preview', async ({ page, context }) => {
     await signIn(page)
     const meterID = `meter_conflict_${randomUUID().replaceAll('-', '')}`

@@ -110,7 +110,9 @@ preview 不保留付款／退款額度、不呼叫 provider、不執行領域寫
 
 C02 預覽若引用已過期報價，回 `409 QUOTE_EXPIRED`，不建立接受命令或付款義務。接受頁顯示原報價與到期原因，並提供帶入原客戶的新報價入口；新報價必須重新計價，不延長原報價。
 
-C03／C04 預覽若報價 ID、綁定 Fingerprint、目標訂閱或變更方式不相符，回 `409 CHANGE_QUOTE_BINDING_MISMATCH`，不建立預覽或命令。畫面須指出綁定錯配，讓操作員從正確的報價詳情重新進入；訂閱 revision 變動仍維持原本的來源衝突處理。
+C03／C04 預覽若報價 ID、綁定 Fingerprint、目標訂閱或變更方式不相符，回 `409 CHANGE_QUOTE_BINDING_MISMATCH`，不建立預覽或命令。畫面須指出綁定錯配，讓操作員從正確的報價詳情重新進入。
+
+C01 建立變更報價時，若綁定的訂閱 revision 已改變，命令以 `CHANGE_QUOTE_REVISION_CHANGED` 失敗；報價與綁定在同一交易回滾，不產生成功收據。C03／C04 預覽若綁定或訂閱 revision 已改變，回 `409 CHANGE_QUOTE_REVISION_CHANGED`；若報價價格版本已非目前選價，回 `409 CHANGE_QUOTE_PRICE_SUPERSEDED`。兩者均不建立預覽或命令，介面分別指出需依最新訂閱狀態或最新價格重新報價。
 
 批次 preview 固定 target IDs＋source versions＋預期金額；job 不得執行後來才符合條件的對象。明確逐項衝突可留待新預覽，不能偷偷擴大 batch。C13／C30／C32／C44／C45 每批最多固定 100 個候選；預覽讀取第 101 個候選以判斷是否有剩餘項目，只將前 100 個寫入固定成員。五種工作皆依前一個已建立工作的固定清單最後一項輪轉，必要時回到開頭，避免衝突或待查證項反覆阻擋其他候選。僅重開預覽不移動游標。C32 已建立的 capture outbox 會退出候選集合。preview impact 的 `has_more_candidates` 為字串 `true`／`false`，表示預覽當下仍有本批之外的候選項目；UI 必須提醒操作員建立新批次。
 

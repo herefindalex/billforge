@@ -53,8 +53,11 @@ func (l *Lab) bindChangeQuoteTx(ctx context.Context, tx *sql.Tx, at time.Time, q
 	if err := tx.QueryRowContext(ctx, `SELECT customer_id,revision,status FROM subscriptions WHERE id=?`, subID).Scan(&subCustomer, &revision, &status); err != nil {
 		return ChangeQuoteBinding{}, err
 	}
-	if quoteCustomer != subCustomer || revision != expectedRevision || status != "active" || previouslyAccepted != 0 || contractQuote != 0 || !at.Before(time.Unix(0, expiry)) {
+	if quoteCustomer != subCustomer || status != "active" || previouslyAccepted != 0 || contractQuote != 0 || !at.Before(time.Unix(0, expiry)) {
 		return ChangeQuoteBinding{}, ErrConflict
+	}
+	if revision != expectedRevision {
+		return ChangeQuoteBinding{}, ErrChangeQuoteRevisionChanged
 	}
 	b := ChangeQuoteBinding{QuoteID: quoteID, SubscriptionID: subID, Mode: mode, ExpectedRevision: expectedRevision, Fingerprint: hash(quoteFingerprint, subID, mode, expectedRevision)}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO change_quote_bindings(quote_id,subscription_id,mode,expected_revision,fingerprint) VALUES(?,?,?,?,?) ON CONFLICT(quote_id) DO NOTHING`, b.QuoteID, b.SubscriptionID, b.Mode, b.ExpectedRevision, b.Fingerprint); err != nil {

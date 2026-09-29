@@ -1313,6 +1313,104 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(0)
   })
 
+  test('a stale subscription revision rolls back a new change quote and binding', async ({ page }) => {
+    await signIn(page)
+    const customerID = `change-quote-atomic-${randomUUID()}`
+    const { subscriptionID } = await createPaidSubscription(page, customerID, 'basic')
+    const revision = BigInt(scalar('SELECT revision FROM subscriptions WHERE id=?', subscriptionID))
+    const quotesBefore = count('SELECT COUNT(*) FROM quotes WHERE customer_id=?', customerID)
+
+    await page.goto(`${app.baseURL}/admin/quotes/new`)
+    await page.getByRole('button', { name: '建立另一筆報價' }).click()
+    await page.getByRole('textbox', { name: /客戶 ID/ }).fill(customerID)
+    await page.getByRole('textbox', { name: /方案 ID/ }).fill('pro')
+    await page.getByRole('textbox', { name: /席次/ }).fill('5')
+    await page.getByRole('checkbox', { name: '這是現有訂閱的變更報價' }).check()
+    await page.getByRole('textbox', { name: /訂閱 ID/ }).fill(subscriptionID)
+    await page.getByRole('combobox', { name: /變更方式/ }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText('下期變更', { exact: true }).click()
+    await page.getByRole('textbox', { name: /目前 Revision/ }).fill((revision + 1n).toString())
+    await page.getByRole('button', { name: '建立報價' }).click()
+
+    await expect(page.getByRole('main').getByText('failed', { exact: true }).first()).toBeVisible()
+    const commandID = scalar('SELECT id FROM admin_commands WHERE action_id=? ORDER BY rowid DESC LIMIT 1', 'C01')
+    expect(scalar('SELECT status FROM admin_commands WHERE id=?', commandID)).toBe('failed')
+    expect(scalar('SELECT error_code FROM admin_commands WHERE id=?', commandID)).toBe('CHANGE_QUOTE_REVISION_CHANGED')
+    expect(count('SELECT COUNT(*) FROM quotes WHERE customer_id=?', customerID)).toBe(quotesBefore)
+    expect(count('SELECT COUNT(*) FROM change_quote_bindings WHERE subscription_id=?', subscriptionID)).toBe(0)
+    expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID)).toBe(0)
+    await expect(page.getByRole('row', { name: /報價 ID/ })).toContainText('尚未產生')
+    await expect(page.getByRole('row', { name: /錯誤/ })).toContainText('訂閱 Revision 已改變')
+  })
+
+  test('a newly selected Pro price rejects the old bound quote before scheduling', async ({ page }) => {
+    await signIn(page)
+    const customerID = `superseded-plan-price-${randomUUID()}`
+    const { subscriptionID } = await createPaidSubscription(page, customerID, 'basic')
+    const revision = scalar('SELECT revision FROM subscriptions WHERE id=?', subscriptionID)
+
+    await page.goto(`${app.baseURL}/admin/quotes/new`)
+    await page.getByRole('button', { name: '建立另一筆報價' }).click()
+    await page.getByRole('textbox', { name: /客戶 ID/ }).fill(customerID)
+    await page.getByRole('textbox', { name: /方案 ID/ }).fill('pro')
+    await page.getByRole('textbox', { name: /席次/ }).fill('5')
+    await page.getByRole('checkbox', { name: '這是現有訂閱的變更報價' }).check()
+    await page.getByRole('textbox', { name: /訂閱 ID/ }).fill(subscriptionID)
+    await page.getByRole('combobox', { name: /變更方式/ }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText('下期變更', { exact: true }).click()
+    await page.getByRole('textbox', { name: /目前 Revision/ }).fill(revision)
+    await page.getByRole('button', { name: '建立報價' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+    const quoteID = scalar('SELECT quote_id FROM change_quote_bindings WHERE subscription_id=?', subscriptionID)
+    expect(scalar('SELECT amount_minor FROM quotes WHERE id=?', quoteID)).toBe('10000')
+
+    const priceID = `superseding_pro_${randomUUID().replaceAll('-', '')}`
+    const version = String(count("SELECT COALESCE(MAX(version), 0) + 1 FROM price_versions WHERE plan_id='pro'"))
+    const periodStart = BigInt(scalar('SELECT period_start FROM billing_periods WHERE subscription_id=?', subscriptionID))
+    const effective = new Date(Number((periodStart + 60n * 1_000_000_000n) / 1_000_000n)).toISOString()
+    await page.goto(`${app.baseURL}/admin/prices/pro/new`)
+    for (const [label, value] of [
+      ['價格版本 ID', priceID], ['版本號', version],
+      ['固定金額（最小單位）', '7000'], ['每席金額（最小單位）', '1000'],
+      ['包含任務量', '100'], ['超額費率分子', '1'],
+      ['超額費率分母', '1'], ['生效起點（UTC）', effective],
+    ]) await page.getByLabel(label, { exact: true }).fill(value)
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await page.getByRole('button', { name: '確認發布價格' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認發布價格' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+
+    await page.goto(`${app.baseURL}/admin/catalog-selections/new`)
+    for (const [label, value] of [
+      ['方案 ID', 'pro'], ['Cohort', 'default'],
+      ['生效時間（UTC）', effective], ['價格版本 ID', priceID],
+    ]) await page.getByLabel(label, { exact: true }).fill(value)
+    await page.getByRole('button', { name: '建立預覽' }).click()
+    await page.getByRole('button', { name: '確認選價' }).last().click()
+    await page.getByRole('dialog').getByRole('button', { name: '確認選價' }).click()
+    await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+
+    const session = await (await page.request.get(`${app.baseURL}/admin/api/session`)).json() as { csrf_token: string }
+    try {
+      await submitClockControl(page, app.baseURL, session.csrf_token, 'fixed', new Date(Date.parse(effective) + 1000).toISOString())
+      await page.goto(`${app.baseURL}/admin/quotes/${quoteID}/accept`)
+      await page.getByRole('button', { name: '前往下期變更' }).click()
+      const response = page.waitForResponse((value) => value.url().endsWith('/admin/api/previews') && value.request().method() === 'POST')
+      await page.getByRole('button', { name: '預覽下期變更' }).click()
+      const previewResponse = await response
+      expect(previewResponse.status()).toBe(409)
+      expect((await previewResponse.json()).error.code).toBe('CHANGE_QUOTE_PRICE_SUPERSEDED')
+      await expect(page.getByText('報價價格版本已被取代', { exact: true })).toBeVisible()
+      await expect(page.getByText(/請重新建立變更報價，再確認新金額/)).toBeVisible()
+      expect(count("SELECT COUNT(*) FROM admin_previews WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(0)
+      expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(0)
+      expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(0)
+      expect(scalar('SELECT price_version_id FROM subscriptions WHERE id=?', subscriptionID)).toBe('basic-v1')
+    } finally {
+      await submitClockControl(page, app.baseURL, session.csrf_token, 'real')
+    }
+  })
+
   test('a concurrent subscription change preserves the original plan binding intent', async ({ page }) => {
     await signIn(page)
     const customerID = `plan-stale-${randomUUID()}`
@@ -1362,6 +1460,13 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       await expect(page.getByRole('button', { name: '確認排程' })).toHaveCount(0)
       expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(0)
       expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='cancel' AND status='scheduled'", subscriptionID)).toBe(1)
+      const stalePreview = page.waitForResponse((value) => value.url().endsWith('/admin/api/previews') && value.request().method() === 'POST')
+      await page.getByRole('button', { name: '預覽下期變更' }).click()
+      const stalePreviewResponse = await stalePreview
+      expect(stalePreviewResponse.status()).toBe(409)
+      expect((await stalePreviewResponse.json()).error.code).toBe('CHANGE_QUOTE_REVISION_CHANGED')
+      await expect(page.getByText('訂閱 Revision 已改變', { exact: true })).toBeVisible()
+      expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(0)
     } finally {
       await other.close()
     }
@@ -1416,6 +1521,13 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       expect(count('SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?', subscriptionID)).toBe(0)
       expect(count('SELECT COUNT(*) FROM supplemental_invoices WHERE subscription_id=?', subscriptionID)).toBe(0)
       expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C04' AND c.target_id=?", subscriptionID)).toBe(0)
+      const stalePreview = page.waitForResponse((value) => value.url().endsWith('/admin/api/previews') && value.request().method() === 'POST')
+      await page.getByRole('button', { name: '預覽立即升級' }).click()
+      const stalePreviewResponse = await stalePreview
+      expect(stalePreviewResponse.status()).toBe(409)
+      expect((await stalePreviewResponse.json()).error.code).toBe('CHANGE_QUOTE_REVISION_CHANGED')
+      await expect(page.getByText('訂閱 Revision 已改變', { exact: true })).toBeVisible()
+      expect(count('SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?', subscriptionID)).toBe(0)
     } finally {
       await other.close()
     }

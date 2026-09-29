@@ -43,8 +43,11 @@ func (l *Lab) loadImmediateUpgradeSnapshot(ctx context.Context, tx *sql.Tx, at t
 	if quoteCustomer != customer || boundSub != subID || mode != "immediate" || savedFingerprint != input.Fingerprint {
 		return snapshot, ErrChangeQuoteBindingMismatch
 	}
-	if boundRevision != revision || currentRevision != revision || status != "active" || !at.Before(time.Unix(0, quoteExpiry)) {
+	if status != "active" || !at.Before(time.Unix(0, quoteExpiry)) {
 		return snapshot, ErrConflict
+	}
+	if boundRevision != revision || currentRevision != revision {
+		return snapshot, ErrChangeQuoteRevisionChanged
 	}
 	var fromPlan string
 	if err := tx.QueryRowContext(ctx, `SELECT plan_id FROM price_versions WHERE id=?`, fromPrice).Scan(&fromPlan); err != nil {
@@ -79,7 +82,7 @@ func (l *Lab) loadImmediateUpgradeSnapshot(ctx context.Context, tx *sql.Tx, at t
 		return snapshot, err
 	}
 	if selectedPrice != quotePrice {
-		return snapshot, ErrConflict
+		return snapshot, ErrChangeQuotePriceSuperseded
 	}
 	oldTerms, err := loadPriceTerms(ctx, tx, fromPrice)
 	if err != nil {

@@ -729,6 +729,8 @@ func (l *Lab) AdminExecuteCommand(ctx context.Context, id string) (AdminCommand,
 			code := "DOMAIN_REJECTED"
 			if errors.Is(domainErr, ErrAccountMigrationStopped) {
 				code = "ACCOUNT_MIGRATION_STOPPED"
+			} else if actionID == "C01" && errors.Is(domainErr, ErrChangeQuoteRevisionChanged) {
+				code = "CHANGE_QUOTE_REVISION_CHANGED"
 			} else if actionID == "C02" || actionID == "C03" || actionID == "C04" || actionID == "C05" || actionID == "C06" || actionID == "C07" || actionID == "C08" || actionID == "C11" || actionID == "C12" || actionID == "C13" || actionID == "C14" || actionID == "C15" || actionID == "C18" || actionID == "C19" || actionID == "C20" || actionID == "C21" || actionID == "C22" || actionID == "C24" || actionID == "C25" || actionID == "C27" || actionID == "C28" || actionID == "C29" || actionID == "C30" || actionID == "C31" || actionID == "C32" || actionID == "C35" || actionID == "C36" || actionID == "C39" || actionID == "C40" || actionID == "C41" || actionID == "C42" || actionID == "C43" || actionID == "C44" || actionID == "C45" || actionID == "C46" || actionID == "C49" {
 				code = "PREVIEW_STALE"
 			}

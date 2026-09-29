@@ -17,6 +17,8 @@ import (
 var (
 	ErrConflict                   = errors.New("conflicting identity or payload")
 	ErrChangeQuoteBindingMismatch = fmt.Errorf("%w: quote does not match its change binding", ErrConflict)
+	ErrChangeQuoteRevisionChanged = fmt.Errorf("%w: subscription revision changed after quote binding", ErrConflict)
+	ErrChangeQuotePriceSuperseded = fmt.Errorf("%w: quote price is no longer selected", ErrConflict)
 	ErrExpired                    = errors.New("quote expired")
 	ErrPeriodEnded                = errors.New("service period ended")
 	ErrLateNeedsReview            = errors.New("late payment requires service correction review")

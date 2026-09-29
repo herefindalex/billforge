@@ -19,6 +19,20 @@ function loadPending(id: string, actionID: string): Pending | null {
   try { const value = sessionStorage.getItem(storageKey(id, actionID)); return value ? JSON.parse(value) as Pending : null } catch { return null }
 }
 
+function previewErrorDetails(error: Error): { message: string; description: string } {
+  if (error instanceof HttpError) {
+    switch (error.code) {
+      case 'CHANGE_QUOTE_BINDING_MISMATCH':
+        return { message: '報價與綁定資料不一致', description: '報價 ID、綁定 Fingerprint 或訂閱不相符。請從正確的報價詳情重新進入方案變更。' }
+      case 'CHANGE_QUOTE_REVISION_CHANGED':
+        return { message: '訂閱 Revision 已改變', description: '原變更報價綁定的訂閱版本已失效。請重新讀取訂閱，建立對應新 Revision 的變更報價。' }
+      case 'CHANGE_QUOTE_PRICE_SUPERSEDED':
+        return { message: '報價價格版本已被取代', description: '目前方案選用的價格版本已改變。請重新建立變更報價，再確認新金額。' }
+    }
+  }
+  return { message: '無法建立預覽', description: error.message }
+}
+
 export default function SchedulePlan({ session, immediate = false }: { session: Session; immediate?: boolean }) {
   const { id = '' } = useParams()
   const actionID = immediate ? 'C04' : 'C03'
@@ -138,6 +152,7 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
   if (subscription.isPending) return <Skeleton active />
   if (subscription.isError) return <ReadFailureWithRecovery title="訂閱無法載入" message={subscription.error.message} onRetryRead={() => { void subscription.refetch() }} hasPendingCommand={pending !== null} onRecoverCommand={() => { if (pending) submit.mutate(pending) }} recovering={submit.isPending} commandID={commandID} recoveryError={submit.isError ? submit.error.message : null} />
   const visibleCommand = command.isError && !canShowStaleRead(command.error) ? undefined : command.data
+  const previewError = createPreview.isError && !previewInvalidated ? previewErrorDetails(createPreview.error) : null
 
   return <div className="form-page">
     <Typography.Title level={2}>{immediate ? '立即升級 Pro' : '排程下期方案變更'}</Typography.Title>
@@ -164,14 +179,12 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
     ]} />} />}
     {previewInvalidated && !preview && !pending && !commandID && <Alert type="warning" showIcon className="result-card" message="變更輸入已修改，請重新預覽" />}
     {pending && !commandID && <Alert type="warning" showIcon className="result-card" message="原排程命令的結果尚未確認" description={<Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>用原 request key 查詢</Button>} />}
-    {createPreview.isError && !previewInvalidated && <Alert
+    {previewError && <Alert
       type="error"
       showIcon
       className="result-card"
-      message={createPreview.error instanceof HttpError && createPreview.error.code === 'CHANGE_QUOTE_BINDING_MISMATCH' ? '報價與綁定資料不一致' : '無法建立預覽'}
-      description={createPreview.error instanceof HttpError && createPreview.error.code === 'CHANGE_QUOTE_BINDING_MISMATCH'
-        ? '報價 ID、綁定 Fingerprint 或訂閱不相符。請從正確的報價詳情重新進入方案變更。'
-        : createPreview.error.message}
+      message={previewError.message}
+      description={previewError.description}
     />}
     {preview && <Card title="變更預覽" className="result-card">
       <PreviewWarnings preview={preview} expired={previewExpired} />

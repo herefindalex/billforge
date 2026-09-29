@@ -9,6 +9,63 @@ import (
 	"time"
 )
 
+func TestAdminCreateChangeQuoteRollsBackWhenBindingRevisionIsStale(t *testing.T) {
+	l, _ := openChangingLab(t)
+	ctx := context.Background()
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	customerID := "atomic-change-binding-customer"
+	sub := paidBasicSubscription(t, l, customerID)
+
+	var revision int64
+	if err := l.db.QueryRowContext(ctx, `SELECT revision FROM subscriptions WHERE id=?`, sub.SubscriptionID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	var quotesBefore int
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM quotes WHERE customer_id=?`, customerID).Scan(&quotesBefore); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := json.Marshal(AdminCreateQuotePayload{
+		CustomerID:           customerID,
+		PlanID:               "pro",
+		Cohort:               "default",
+		Seats:                "5",
+		ChangeSubscriptionID: sub.SubscriptionID,
+		Mode:                 "next_period",
+		Revision:             strconv.FormatInt(revision+1, 10),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "atomic-change-binding-stale", "C01", "", payload, "")
+	if err != nil || replay {
+		t.Fatalf("submit change quote: command=%+v replay=%t err=%v", command, replay, err)
+	}
+	command, err = l.AdminExecuteCommand(ctx, command.ID)
+	if err != nil || command.Status != "failed" {
+		t.Fatalf("stale binding must fail its command: command=%+v err=%v", command, err)
+	}
+	if command.ErrorCode != "CHANGE_QUOTE_REVISION_CHANGED" {
+		t.Fatalf("stale binding must explain the revision conflict: %+v", command)
+	}
+
+	var quotesAfter, bindings, receipts int
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM quotes WHERE customer_id=?`, customerID).Scan(&quotesAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM change_quote_bindings WHERE subscription_id=?`, sub.SubscriptionID).Scan(&bindings); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if quotesAfter != quotesBefore || bindings != 0 || receipts != 0 {
+		t.Fatalf("failed binding left a quote or receipt: quotes=%d→%d bindings=%d receipts=%d", quotesBefore, quotesAfter, bindings, receipts)
+	}
+}
+
 func TestAdminChangePreviewRejectsAnotherQuotesBindingForBothModes(t *testing.T) {
 	l, _ := openChangingLab(t)
 	ctx := context.Background()
@@ -113,7 +170,7 @@ func TestAdminChangePreviewRejectsSupersededPriceForBothModes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := l.AdminCreatePreview(ctx, "local-admin", scenario.action, sub.SubscriptionID, payload); !errors.Is(err, ErrConflict) {
+			if _, err := l.AdminCreatePreview(ctx, "local-admin", scenario.action, sub.SubscriptionID, payload); !errors.Is(err, ErrChangeQuotePriceSuperseded) || !errors.Is(err, ErrConflict) {
 				t.Fatalf("superseded quote price should reject preview: %v", err)
 			}
 			for _, query := range []string{
@@ -174,7 +231,7 @@ func TestAdminChangePreviewRejectsChangedRevisionForBothModes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := l.AdminCreatePreview(ctx, "local-admin", scenario.action, sub.SubscriptionID, payload); !errors.Is(err, ErrConflict) {
+			if _, err := l.AdminCreatePreview(ctx, "local-admin", scenario.action, sub.SubscriptionID, payload); !errors.Is(err, ErrChangeQuoteRevisionChanged) || !errors.Is(err, ErrConflict) {
 				t.Fatalf("changed subscription revision should reject preview: %v", err)
 			}
 			for _, query := range []string{

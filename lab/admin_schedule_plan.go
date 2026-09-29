@@ -45,8 +45,11 @@ func (l *Lab) loadSchedulePlanSnapshot(ctx context.Context, tx *sql.Tx, at time.
 	if quoteCustomer != subCustomer || boundSub != subID || mode != "next_period" || savedFingerprint != input.Fingerprint {
 		return result, ErrChangeQuoteBindingMismatch
 	}
-	if boundRevision != revision || currentRevision != revision || status != "active" || !at.Before(time.Unix(0, quoteExpiry)) {
+	if status != "active" || !at.Before(time.Unix(0, quoteExpiry)) {
 		return result, ErrConflict
+	}
+	if boundRevision != revision || currentRevision != revision {
+		return result, ErrChangeQuoteRevisionChanged
 	}
 	if err := ensureNoUnresolvedPriceMigration(ctx, tx, subID); err != nil {
 		return result, err
@@ -61,7 +64,7 @@ func (l *Lab) loadSchedulePlanSnapshot(ctx context.Context, tx *sql.Tx, at time.
 		return result, err
 	}
 	if selectedPrice != quotePrice {
-		return result, ErrConflict
+		return result, ErrChangeQuotePriceSuperseded
 	}
 	result.PlanID, result.Seats, result.QuoteExpiry = planID, quotedSeats, time.Unix(0, quoteExpiry).UTC()
 	result.Sources, err = json.Marshal(map[string]string{

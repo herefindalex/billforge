@@ -1,12 +1,14 @@
 # Web Admin C01–C49 證據盤點
 
-狀態：**部分完成**。盤點日期：2026-09-28。C01–C49 均有基礎入口表；C07–C12、C15–C21 已補執行鏈與證據判定，其餘仍待同粒度核對。本表記錄可重跑的程式與測試入口，不把程式碼存在或頁面可開啟視為完整驗收。
+狀態：**部分完成**。盤點日期：2026-09-29。C01–C49 均有基礎入口表；C07–C12、C15–C21 已補執行鏈與證據判定，其餘仍待同粒度核對。本表記錄可重跑的程式與測試入口，不把程式碼存在或頁面可開啟視為完整驗收。
 
-## 瀏覽器請求與收據關聯（2026-09-28）
+## 瀏覽器請求與收據關聯（2026-09-29）
 
-完整 Playwright 回歸 **132／132 通過**。其中 `admin.spec.ts` 的稽核檔記錄 93 筆瀏覽器情境；`audit-action-cases.mjs` 確認 C01–C49 **49／49** 均有瀏覽器 `POST /admin/api/commands`，且請求的冪等鍵對上同一動作的 `admin_commands` 成功狀態與 `admin_command_receipts`。稽核不再以「同一測試有瀏覽器請求，也有某筆成功命令」推斷兩者相關；以該舊條件構造的反例會失敗。可依根目錄 README 的命令重跑。
+完整 Playwright 回歸 **151／151 通過**。其中 `admin.spec.ts` 的稽核檔記錄 100 筆瀏覽器情境；`audit-action-cases.mjs` 確認 C01–C49 **49／49** 均有瀏覽器 `POST /admin/api/commands`，且請求的冪等鍵對上同一動作的 `admin_commands` 成功狀態與 `admin_command_receipts`。稽核不再以「同一測試有瀏覽器請求，也有某筆成功命令」推斷兩者相關；以該舊條件構造的反例會失敗。可依根目錄 README 的命令重跑。其後新增的 C01 過期 revision 原子性瀏覽器案例定向執行 **1／1 通過**。
 
 這項證據只證明逐動作的瀏覽器提交與成功收據關聯；逐動作的來源守衛、錯誤與中斷恢復、金融事實仍須各自核對，A30 維持部分完成。
+
+2026-09-29 後續定向瀏覽器驗證：C01 過期 revision 原子性、C03 舊報價遇新選價、C03／C04 競爭者修改訂閱後重新預覽，四個情境各自通過。完整回歸 151／151 的數字來自新增兩個情境之前；新情境的全套回歸尚未執行。
 
 ## 共用執行路徑
 
@@ -71,6 +73,10 @@
 | C47 | `/lab/payment-decisions/:id` | `lab.control` | N | `admin_controls_test.go`（provider 決策已提交、付款已 capture 後，重啟沿原 receipt 完成命令；相反結果競爭與終態後新命令均拒絕）、`web/admin/e2e/admin.spec.ts`（第二個相反決策顯示 `DOMAIN_REJECTED`、僅首命令有收據；確定失敗後重試） |
 | C48 | `/lab/refund-decisions/:id` | `lab.control` | N | `admin_controls_test.go`（相反結果競爭與終態後新命令均拒絕）、`web/admin/e2e/admin.spec.ts`（第二個相反決策顯示 `DOMAIN_REJECTED`、僅首命令有收據且派送前無 provider 退款；確定失敗後 C16 派送釋放保留額；C16 回應遺失後經 C17 查證，最終僅一筆） |
 | C49 | `/lab/faults/:id` | `lab.control` | N | `admin_controls_test.go`（另一筆付款先執行不會誤領指定票據；同操作第二張票據以 `failed/DOMAIN_REJECTED` 結束、原鍵重播不新增票據；付款／退款在領票後、provider 呼叫前重啟仍沿原命令使用票據）、`web/admin/e2e/admin.spec.ts`（重複建票錯誤可見且原票據繼續派送；一次性故障票據與原命令恢復）。`TestAdminFaultTicketsKeepPendingTicketVisibleAfterRecentUsedTickets` 與 `lab-fault-pagination.spec.ts` 驗待使用票據優先及有界游標可跨頁找回。 |
+
+## C01／C03／C04 變更報價的衝突與原子性
+
+`lab/admin_change_binding_mismatch_test.go` 驗 C01 在訂閱 revision 失效時回滾報價與綁定，保留失敗命令而不產生成功收據；C03／C04 均在報價綁定不符、選價被取代或訂閱 revision 改變時拒絕預覽，沒有新預覽、命令或方案變更。瀏覽器以真實表單驗 C01 零殘留，C03／C04 競爭者修改訂閱後重新預覽的原因顯示，以及 C18／C21 選用新 Pro 價格後 C03 舊報價被拒絕。這些定向證據尚未覆蓋 C01–C49 每項動作的完整重播與恢復矩陣。
 
 ## C18 Pro 價格發布的端到端追蹤
 

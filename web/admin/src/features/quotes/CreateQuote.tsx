@@ -130,7 +130,9 @@ export default function CreateQuote({ session }: { session: Session }) {
         { key: 'price', label: '價格版本', children: command.data.result_refs?.price_version_id ?? '尚未確定' },
         { key: 'contract', label: '合約版本', children: command.data.result_refs?.contract_version_id ?? '非合約報價' },
         { key: 'binding', label: '變更綁定 Fingerprint', children: command.data.result_refs?.binding_fingerprint ? <Typography.Text copyable>{command.data.result_refs.binding_fingerprint}</Typography.Text> : '非變更報價' },
-        { key: 'error', label: '錯誤', children: command.data.error_code || '無' },
+        { key: 'error', label: '錯誤', children: command.data.error_code === 'CHANGE_QUOTE_REVISION_CHANGED'
+          ? '訂閱 Revision 已改變；請重新讀取訂閱，使用最新 Revision 建立變更報價。'
+          : command.data.error_code || '無' },
       ]} />}
       {command.data?.status === 'succeeded' && command.data.result_refs?.mode === 'next_period' && <Button className="result-card" disabled={command.isError} onClick={() => navigate(`/subscriptions/${encodeURIComponent(command.data!.result_refs!.change_subscription_id)}/schedule-plan`, { state: { quote_id: command.data!.result_refs!.quote_id, fingerprint: command.data!.result_refs!.binding_fingerprint } })}>前往排程下期變更</Button>}
       {command.data?.status === 'succeeded' && command.data.result_refs?.mode === 'immediate' && <Button className="result-card" disabled={command.isError} onClick={() => navigate(`/subscriptions/${encodeURIComponent(command.data!.result_refs!.change_subscription_id)}/upgrade`, { state: { quote_id: command.data!.result_refs!.quote_id, fingerprint: command.data!.result_refs!.binding_fingerprint } })}>前往立即升級</Button>}

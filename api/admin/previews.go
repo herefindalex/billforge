@@ -46,6 +46,10 @@ func (s *Server) createPreview(w http.ResponseWriter, r *http.Request) {
 			apiError(w, http.StatusConflict, "QUOTE_EXPIRED", "Quote expired; create a new quote")
 		case errors.Is(err, lab.ErrChangeQuoteBindingMismatch):
 			apiError(w, http.StatusConflict, "CHANGE_QUOTE_BINDING_MISMATCH", "Quote ID and change binding do not match this subscription")
+		case errors.Is(err, lab.ErrChangeQuoteRevisionChanged):
+			apiError(w, http.StatusConflict, "CHANGE_QUOTE_REVISION_CHANGED", "Subscription revision changed; create a new change quote")
+		case errors.Is(err, lab.ErrChangeQuotePriceSuperseded):
+			apiError(w, http.StatusConflict, "CHANGE_QUOTE_PRICE_SUPERSEDED", "Quote price is no longer selected; create a new change quote")
 		case errors.Is(err, lab.ErrConflict):
 			apiError(w, http.StatusConflict, "PREVIEW_UNAVAILABLE", "Source changed or has no eligible items")
 		case errors.Is(err, lab.ErrAdminUnsupportedAction):

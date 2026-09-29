@@ -119,6 +119,12 @@ React 19＋Ant Design 管理介面已接到本機 Go server。C01–C49 各有�
 | A29 | 本機通過 | Playwright 以新資料庫建置並啟動嵌入式 binary，驗登入、概覽、登出與 58 個路由；付款等待期間重啟同一 binary／SQLite，重新登入後找回原命令並查證。另一個案例先由 CLI binary 建立既有帳單與 provider capture，確認其沒有 admin schema，再啟動 admin binary 升級至 v6；登入後仍可檢視原帳單，金額與 provider capture 不變。純 API binary 已手動驗證；README 提供建置與登入指令。 |
 | A30 | 部分 | [49 個動作證據盤點](web-admin-action-audit.md)列出實際共用 endpoint、逐項 UI 路徑、能力、預覽型態及交易測試入口；命令與預覽的 HTTP admission guard、命令未知欄位拒絕與零寫入已逐項驗證，Playwright 已驗 58 個路由。C12 另有完整瀏覽器抵扣及 SQLite 收據證據。49 項動作現均在盤點表列有瀏覽器測試檔案引用；仍需逐項核對情境是否真正執行該動作，以及每動作的收據／恢復、其餘輸入與衝突矩陣，A30 維持未結案。 C15 新增真實雙分頁預覽失效與重確認案例，直接核對兩筆成功收據、單筆失敗原命令及 grant 預算。  C42 的瀏覽器案例現直接執行切寫並驗回應遺失後原鍵恢復，核對唯一命令、收據與切換事件。  C43 已補真實停止與後續 C05 阻擋證據，並區分帳戶已停止與預覽來源變動的錯誤。 C07／C08／C09 已增付款建立與派送交錯的跨實例 Go／SQLite 證據；這不取代其他動作缺少的完整矩陣。 |
 
+### A13／C01 變更報價綁定的原子性（2026-09-29）
+
+`TestAdminCreateChangeQuoteRollsBackWhenBindingRevisionIsStale` 在 C01 命令已受理後，以過期的訂閱 revision 觸發綁定失敗；命令以 `CHANGE_QUOTE_REVISION_CHANGED` 結束，該交易建立的報價未留下，亦無變更綁定或成功收據。Playwright 的 `a stale subscription revision rolls back a new change quote and binding` 以真實表單與 SQLite 重驗同一結果，並確認畫面顯示 revision 原因與「報價 ID 尚未產生」。
+
+C03／C04 的 Go 測試分別驗選價被取代與訂閱 revision 變動時回傳可辨識的衝突，且不建立預覽、命令或變更事實。兩條瀏覽器方案變更路徑在競爭者改動訂閱後重新預覽，均收到 `409 CHANGE_QUOTE_REVISION_CHANGED` 並顯示修正方式。另一瀏覽器案例先以 C18／C21 發布並選用新 Pro 價格，再將業務時鐘推到生效後；舊綁定報價的 C03 預覽收到 `409 CHANGE_QUOTE_PRICE_SUPERSEDED`，畫面要求依新金額重新報價，SQLite 確認零 C03 預覽、命令與變更排程。A13 其他衝突及重播矩陣仍待驗。
+
 ### A11／A24／A28 客戶與歷史頁讀取故障（2026-09-28）
 
 `web/admin/e2e/remaining-detail-read-failure.spec.ts` 三個定向情境通過。客戶詳情以 CLI demo 的真實 SQLite 訂閱來源驗更新故障：503 保留並標示舊客戶資料，停用建立／接受報價入口；重試成功後恢復，403 隱藏舊資料。帳單更正歷史與遷移 Shadow／來源歷史用固定 HTTP 回應驗 UI 狀態：503 保留精確金額或來源記錄並停用舊游標的下一頁，來源人工處理入口亦停用；403 隱藏既有記錄。這是頁面故障行為證據，不能代替歷史資料的領域正確性與逐動作恢復驗收。

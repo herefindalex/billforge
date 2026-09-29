@@ -2,18 +2,20 @@
 
 **English** | [繁體中文](web-admin-action-audit.zh-TW.md) | [简体中文](web-admin-action-audit.zh-CN.md)
 
+Status: **A30 acceptance remains partial** as of 2026-09-29. The action matrix below maps C01–C49 to routes, permissions, previews, and existing tests. The new browser audit establishes one successful original-key replay per action; financial facts and other recovery variants still need case-specific evidence.
 
+## Browser request, receipt, and replay evidence (2026-09-29)
 
+The full Playwright suite passed **155/155** tests. `admin.spec.ts` wrote **104** browser case records. `audit-action-cases.mjs` confirmed that **49/49** actions have a browser command request matched to a successful receipt and an original-key replay.
 
-Status:** Part completed**** The date of the draw: 26-09-29. C01 and C49 have basic input tables; C07-C12·C15-C21 has been supplemented by the operational chain and the evidence has been determined, the remainder is still undergoing the same particle verification. This table records reusable programs and test inputs, and does not consider the existence of code or the ability to open a page to be complete acceptance.
+For each action, the audit replays one captured browser request from a fresh admin session with its original body and idempotency key. It checks that the server returns the original command ID, the command still has exactly one receipt, and no new command row appears. Use a fresh output path for each run:
 
-## Browser requests are associated with receipt (2026-09-29)
+```sh
+BILLFORGE_E2E_ACTION_CASE_AUDIT=/tmp/billforge-action-cases.jsonl pnpm --dir web/admin test:e2e
+node web/admin/e2e/audit-action-cases.mjs /tmp/billforge-action-cases.jsonl
+```
 
-The full Playwright Returns **155/155 passed** The `admin.spec.ts` audit file records 104 browser situations, including: `audit-action-cases.mjs` Confirms that both C01 and C49 **49/49** have the browser `POST /admin/api/commands`, and the requested idempotency key for the same action `admin_commands` succeeds with `admin_command_receipts`. The audit is no longer related to the inference that "the same test has a browser request and a successful command"; The antiquity built on the old conditions will fail. ReadME commands can be run again in the directory. The C01 expired revision was later added. Atomic browser case orientation runs **1/1 through**.
-
-This evidence only proves that the browser submission is associated with a successful receipt; A30 maintenance is completed, with the source of the action being protected, errors and interrupted recovery, financial facts still to be verified respectively.
-
-2026-09-29 Subsequent browser verification: C01 expired revision Atomicity, C03 Old bids meet new catalog selection, C03/C04 Competitors re-preview after modifying subscriptions, and C03/C04 original key recovery after lost response, with six relevant paths passed respectively. Additional contexts have been included in the full return 155/155, and 104 browser contexts have been approved for receipt-related audits.
+This result does not by itself establish every action's financial facts, conflict behavior, or interrupted-response recovery. The case-specific evidence and remaining gaps are recorded below.
 
 ## Shared routes
 
@@ -23,7 +25,7 @@ This evidence only proves that the browser submission is associated with a succe
 - `lab/admin_numeric_payload_test.go` validates the greater integer accuracy of C07/C15 with the illegal amount format, the precise rate fraction of C18, the UTC time limit of C33. `api/admin/numeric_http_test.go` was further rejected and uncommanded before the actual HTTP handler was authenticated C07/C11/C12/C15 illegal amount, C18 illegal subdivision and C33 illegal UTC before the command or preview entry; Effective integer strings are found in C07/C15 access source search, while C18 preview retains the precise denominator. `web/admin/e2e/admin.spec.ts` Alternatively validated C07/C11/C12/C15 forms refused to exceed the int64 ceiling, changed to over JavaScript safe integer but still de-modulated after the int64 range and did not create a command. The rest of the fields still need their respective HTTP/browser boundary cases.
 - `lab/admin_preview_admission_test.go` previews the actors, actions, objects, content, deadlines and single claims in C07; After the preview expires, the original key still returns to the original command, and different payloads cannot share the key. The receiving process now uses the same set of checks for all R-class actions and does not create a command when it does not; The source version of each action and the in-transaction recalculation still require individual evidence.
 - `lab/admin_reconcile_no_evidence_test.go` verification C10/C17 verification provider not yet end-to-end fact, command maintains verification and no successful receipt; The amount of the refund is reserved. The original provider key later proved successful, and the original command was completed. The browser is also waiting for and recovering from C10.
-- The complete Playwright suite currently contains 89 tests (nine files) containing real Go/SQLite browser settings and 58 known routing open checks. Three of the scenarios involved cross-page cancellation, deletion of old images, re-logging back to the original page, and a delayed arrival of old 401 that did not cover new logins. Resource scanning for cross-page, return, reorganization, change, and URL status with the time frame created by UTC. `lab/admin_resource_filters_test.go` and `api/admin/resource_filters_test.go` verify the whitelist, the filtered lights, the time range and the error detection; `lab/admin_resource_queries_test.go`、 `api/admin/resource_filters_test.go` Other source nulls nulls true zeros and subscriptions/invoices are not repeated after inserting, the browser test corresponding fields are displayed; `api/admin/query_params_test.go` validates other subpage lists that reject unknown, repetitive and format-damaged parameters. Routing checks only show that the page is accessible. The Go tables below are the transaction test files containing the ID of the action, and do not indicate that the full error matrix has been covered.
+- The full Playwright suite passed **155** tests on 2026-09-29, including **104** admin browser cases. Route, stale-session, filter, and query-error checks are backed by `lab/admin_resource_filters_test.go`, `lab/admin_resource_queries_test.go`, `api/admin/resource_filters_test.go`, and `api/admin/query_params_test.go`. Route checks establish navigability; the action table below does not imply complete error-path coverage.
 
 `R` states that a valid preview confirmation must be provided; `N` says there is no preview, but still needs to be authorized, idempotent and source checked. The path in the table omits the `/admin` forecast. The Go Proof path omits the `lab/` lead.
 

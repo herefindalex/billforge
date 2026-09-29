@@ -5,13 +5,15 @@
 
 
 
-## The current situation
+## Current status
 
 The React 19+Ant Design management interface has been delivered to the Go server. C01 - C49 with management commands and UI operation inputs; Overview, list of resources, details, command and batch work can also be read. This is an in-house management experimental environment that has not yet completed [A01 A30 All receipts](../design/08-web-admin-test-plan.md), so "input presence" cannot be equated to complete total delivery.
 
 The `GET /admin/api/price-migrations/{id}`, which details the price migration, is now backing up the physical summary with the various state counts; `GET /admin/api/price-migrations/{id}/items` uses 1 to 100 characters per page to search for individual data, supporting state screening and retransmission time. The optical signal binds the batch ID and the screening conditions; After changes in the status of the project, it should be searched again from the first page. The front end lacks 20 notes per page, and restores the button to the full batch of conflict judgments. The amount is still transmitted in a string of precise minimum currency units.
 
-## Starting
+Verification on 2026-09-29: the full Playwright suite passed **155/155** tests. The [C01–C49 action evidence audit](web-admin-action-audit.md) records **104** browser cases and **49/49** actions with a successful receipt and original-key replay. A30 remains partial while case-specific financial facts and other recovery variants are reviewed.
+
+## Getting started
 
 1. It's going to take Go 1.27, CGO, Node.js and pnpm. Copy `.env.example` to `.env`, and set `BILLFORGE_ADMIN_USERNAME` to `BILLFORGE_ADMIN_PASSWORD` with 12 to 72 bytes; Limiting the read permissions of `.env`. Process environment variables can be modified, and the process environment takes precedence over the file.
 2. Running in the root directory of projects:

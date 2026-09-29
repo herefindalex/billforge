@@ -2,16 +2,20 @@
 
 [English](web-admin-action-audit.md) | **繁體中文** | [简体中文](web-admin-action-audit.zh-CN.md)
 
+狀態：截至 2026-09-29，**A30 驗收仍為部分完成**。下方矩陣將 C01–C49 對應到路由、權限、預覽與既有測試。新增的瀏覽器稽核證明每項動作至少有一筆成功命令可用原鍵重播；金流事實與其他恢復變體仍須逐案舉證。
 
-狀態：**部分完成**。盤點日期：2026-09-29。C01–C49 均有基礎入口表；C07–C12、C15–C21 已補執行鏈與證據判定，其餘仍待同粒度核對。本表記錄可重跑的程式與測試入口，不把程式碼存在或頁面可開啟視為完整驗收。
+## 瀏覽器請求、收據與重播證據（2026-09-29）
 
-## 瀏覽器請求與收據關聯（2026-09-29）
+完整 Playwright 套件 **155／155** 項通過。`admin.spec.ts` 產生 **104** 筆瀏覽器案例紀錄。`audit-action-cases.mjs` 確認 **49／49** 項動作都有與成功收據配對的瀏覽器命令請求，以及原鍵重播證據。
 
-完整 Playwright 回歸 **155／155 通過**。其中 `admin.spec.ts` 的稽核檔記錄 104 筆瀏覽器情境；`audit-action-cases.mjs` 確認 C01–C49 **49／49** 均有瀏覽器 `POST /admin/api/commands`，且請求的冪等鍵對上同一動作的 `admin_commands` 成功狀態與 `admin_command_receipts`。稽核不再以「同一測試有瀏覽器請求，也有某筆成功命令」推斷兩者相關；以該舊條件構造的反例會失敗。可依根目錄 README 的命令重跑。其後新增的 C01 過期 revision 原子性瀏覽器案例定向執行 **1／1 通過**。
+對每項動作，稽核從新的管理員 session 使用原始請求 body 與冪等鍵重播一筆成功命令，確認伺服器回傳原命令 ID、收據仍只有一筆，且命令表未新增資料列。每次執行請使用新的輸出路徑：
 
-這項證據只證明逐動作的瀏覽器提交與成功收據關聯；逐動作的來源守衛、錯誤與中斷恢復、金融事實仍須各自核對，A30 維持部分完成。
+```sh
+BILLFORGE_E2E_ACTION_CASE_AUDIT=/tmp/billforge-action-cases.jsonl pnpm --dir web/admin test:e2e
+node web/admin/e2e/audit-action-cases.mjs /tmp/billforge-action-cases.jsonl
+```
 
-2026-09-29 後續定向瀏覽器驗證：C01 過期 revision 原子性、C03 舊報價遇新選價、C03／C04 競爭者修改訂閱後重新預覽，以及 C03／C04 回應遺失後的原鍵恢復，六條相關路徑各自通過。新增情境已納入完整回歸 155／155，且 104 筆瀏覽器情境的收據關聯稽核通過。
+這項結果本身尚不足以證明每項動作的所有金流事實、衝突行為或回應中斷後的恢復。下文記錄逐案證據與剩餘缺口。
 
 ## 共用執行路徑
 
@@ -21,7 +25,7 @@
 - `lab/admin_numeric_payload_test.go` 驗 C07/C15 的大整數精確度與不合法金額格式、C18 的精確費率分母、C33 的 UTC 截止時間邊界。`api/admin/numeric_http_test.go` 進一步在真實管理 HTTP handler 驗 C07／C11／C12／C15 不合法金額、C18 不合法分母和 C33 不合法 UTC 於命令或預覽入場前被拒，且無命令；有效大整數字串在 C07／C15 抵達來源查詢，C18 預覽保留精確分母。`web/admin/e2e/admin.spec.ts` 另驗 C07／C11／C12／C15 表單拒絕超出 int64 上限、改為超過 JavaScript safe integer 但仍在 int64 範圍後解除錯誤，且不建立命令。其餘欄位仍需各自的 HTTP／browser 邊界案例。
 - `lab/admin_preview_admission_test.go` 在 C07 驗預覽的 actor、動作、對象、內容、期限及單次 claim；原鍵在預覽到期後仍找回原命令，不同 payload 不能共用該鍵。受理流程現在對所有 R 類動作使用同一組核對，且在不符時不建立命令；各動作的來源版本與交易內重算仍需個別證據。
 - `lab/admin_reconcile_no_evidence_test.go` 驗 C10/C17 查證時 provider 尚無終局事實，命令維持待查證且無成功收據；退款額度保持預留。原 provider key 後來出現成功證據，原命令才完成。瀏覽器另驗 C10 的等待與恢復。
-- 完整 Playwright 套件目前 89 個測試（9 個檔案），包含真實 Go／SQLite 瀏覽器情境及 58 個已知路由的開啟檢查；其中三個情境驗跨分頁登出、舊畫面清除、重新登入回原頁，以及延遲抵達的舊 401 不覆蓋新登入。資源篩選情境驗跨頁、返回、重整、變更篩選與 UTC 建立時間下界的 URL 狀態。`lab/admin_resource_filters_test.go` 與 `api/admin/resource_filters_test.go` 驗白名單、篩選後游標、時間範圍及查詢錯誤；`lab/admin_resource_queries_test.go`、`api/admin/resource_filters_test.go` 另驗缺來源的 null、真正的零值及訂閱／帳單插入後不重複，瀏覽器驗對應欄位顯示；`api/admin/query_params_test.go` 驗其他分頁清單拒絕未知、重複和格式損壞的參數。路由檢查只證明頁面可進入。下表的 Go 欄是包含該動作 ID 的交易測試檔，不表示完整錯誤矩陣已覆蓋。
+- 完整 Playwright 套件於 2026-09-29 **155** 項通過，其中包含 **104** 筆管理介面瀏覽器案例。路由、過期 session、篩選與查詢錯誤另由 `lab/admin_resource_filters_test.go`、`lab/admin_resource_queries_test.go`、`api/admin/resource_filters_test.go` 和 `api/admin/query_params_test.go` 支撐。路由檢查只能證明頁面可抵達；下方動作表不代表所有錯誤路徑均已覆蓋。
 
 `R` 表示必須持有效預覽確認；`N` 表示無預覽，但仍須授權、冪等與來源檢查。表中路徑省略 `/admin` 前綴。Go 證據路徑省略 `lab/` 前綴。
 

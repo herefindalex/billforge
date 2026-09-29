@@ -2,16 +2,20 @@
 
 [English](web-admin-action-audit.md) | [繁體中文](web-admin-action-audit.zh-TW.md) | **简体中文**
 
+状态：截至 2026-09-29，**A30 验收仍为部分完成**。下方矩阵将 C01–C49 对应到路由、权限、预览与现有测试。新增的浏览器审计证明每项操作至少有一笔成功命令可用原键重播；资金事实与其他恢复变体仍须逐案举证。
 
-状态：**部分完成**。盘点日期：2026-09-29。C01–C49 均有基础入口表；C07–C12、C15–C21 已补运行链与证据判定，其余仍待同粒度核对。本表记录可重跑的程序与测试入口，不把代码存在或页面可打开视为完整验收。
+## 浏览器请求、收据与重播证据（2026-09-29）
 
-## 浏览器请求与收据关联（2026-09-29）
+完整 Playwright 测试套件 **155／155** 项通过。`admin.spec.ts` 产生 **104** 条浏览器案例记录。`audit-action-cases.mjs` 确认 **49／49** 项操作都有与成功收据匹配的浏览器命令请求，以及原键重播证据。
 
-完整 Playwright 回归 **155／155 通过**。其中 `admin.spec.ts` 的稽核档记录 104 笔浏览器情境；`audit-action-cases.mjs` 确认 C01–C49 **49／49** 均有浏览器 `POST /admin/api/commands`，且请求的幂等键对上同一动作的 `admin_commands` 成功状态与 `admin_command_receipts`。稽核不再以「同一测试有浏览器请求，也有某笔成功命令」推断两者相关；以该旧条件构造的反例会失败。可依根目录 README 的命令重跑。其后添加的 C01 过期 revision 原子性浏览器案例定向运行 **1／1 通过**。
+对每项操作，审计从新的管理员 session 使用原始请求 body 与幂等键重播一笔成功命令，确认服务器返回原命令 ID、收据仍只有一条，且命令表未新增记录。每次运行请使用新的输出路径：
 
-这项证据只证明逐动作的浏览器提交与成功收据关联；逐动作的来源守卫、错误与中断恢复、金融事实仍须各自核对，A30 维持部分完成。
+```sh
+BILLFORGE_E2E_ACTION_CASE_AUDIT=/tmp/billforge-action-cases.jsonl pnpm --dir web/admin test:e2e
+node web/admin/e2e/audit-action-cases.mjs /tmp/billforge-action-cases.jsonl
+```
 
-2026-09-29 后续定向浏览器验证：C01 过期 revision 原子性、C03 旧报价遇新选价、C03／C04 竞争者修改订阅后重新预览，以及 C03／C04 回应遗失后的原键恢复，六条相关路径各自通过。添加情境已纳入完整回归 155／155，且 104 笔浏览器情境的收据关联稽核通过。
+这一结果本身尚不足以证明每项操作的所有资金事实、冲突行为或响应中断后的恢复。下文记录逐案证据与剩余缺口。
 
 ## 共用运行路径
 
@@ -21,7 +25,7 @@
 - `lab/admin_numeric_payload_test.go` 验 C07/C15 的大整数精确度与不合法金额格式、C18 的精确费率分母、C33 的 UTC 截止时间边界。`api/admin/numeric_http_test.go` 进一步在真实管理 HTTP handler 验 C07／C11／C12／C15 不合法金额、C18 不合法分母和 C33 不合法 UTC 于命令或预览入场前被拒，且无命令；有效大整数字串在 C07／C15 抵达来源查找，C18 预览保留精确分母。`web/admin/e2e/admin.spec.ts` 另验 C07／C11／C12／C15 表单拒绝超出 int64 上限、改为超过 JavaScript safe integer 但仍在 int64 范围后解调试误，且不创建命令。其余字段仍需各自的 HTTP／browser 边界案例。
 - `lab/admin_preview_admission_test.go` 在 C07 验预览的 actor、动作、对象、内容、期限及单次 claim；原键在预览到期后仍找回原命令，不同 payload 不能共用该键。受理流程现在对所有 R 类动作使用同一组核对，且在不符时不创建命令；各动作的来源版本与交易内重算仍需个别证据。
 - `lab/admin_reconcile_no_evidence_test.go` 验 C10/C17 查证时 provider 尚无终局事实，命令维持待查证且无成功收据；退款额度保持预留。原 provider key 后来出现成功证据，原命令才完成。浏览器另验 C10 的等待与恢复。
-- 完整 Playwright 套件目前 89 个测试（9 个文件），包含真实 Go／SQLite 浏览器情境及 58 个已知路由的打开检查；其中三个情境验跨分页注销、旧画面清除、重新登录回原页，以及延迟抵达的旧 401 不覆盖新登录。资源筛选情境验跨页、返回、重整、变更筛选与 UTC 创建时间下界的 URL 状态。`lab/admin_resource_filters_test.go` 与 `api/admin/resource_filters_test.go` 验白名单、筛选后光标、时间范围及查找错误；`lab/admin_resource_queries_test.go`、`api/admin/resource_filters_test.go` 另验缺来源的 null、真正的零值及订阅／帐单插入后不重复，浏览器验对应字段显示；`api/admin/query_params_test.go` 验其他分页清单拒绝未知、重复和格式损坏的参数。路由检查只证明页面可进入。下表的 Go 栏是包含该动作 ID 的交易测试档，不表示完整错误矩阵已覆盖。
+- 完整 Playwright 测试套件于 2026-09-29 **155** 项通过，其中包含 **104** 条管理界面浏览器案例。路由、过期 session、筛选与查询错误另由 `lab/admin_resource_filters_test.go`、`lab/admin_resource_queries_test.go`、`api/admin/resource_filters_test.go` 和 `api/admin/query_params_test.go` 支持。路由检查只能证明页面可访问；下方操作表不代表所有错误路径均已覆盖。
 
 `R` 表示必须持有效预览确认；`N` 表示无预览，但仍须授权、幂等与来源检查。表中路径省略 `/admin` 前缀。Go 证据路径省略 `lab/` 前缀。
 

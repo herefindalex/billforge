@@ -12,6 +12,8 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
   let lastAuditedCommandRowID = 0
   const browserActions = new Set<string>()
   const browserCommandKeys = new Set<string>()
+  const browserCommandBodies = new Map<string, string[]>()
+  const replayedActionCases = new Set<string>()
 
   test.beforeAll(async () => { app = await startLocalAdmin() })
   test.afterAll(async () => { await app?.stop() })
@@ -19,6 +21,7 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
     if (!process.env.BILLFORGE_E2E_ACTION_CASE_AUDIT) return
     browserActions.clear()
     browserCommandKeys.clear()
+    browserCommandBodies.clear()
     const observe = (request: Request) => {
       if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/admin/api/commands') return
       try {
@@ -26,30 +29,82 @@ test.describe.serial('local Web Admin with real SQLite and fake provider', () =>
         if (typeof payload.action_id === 'string' && /^C\d{2}$/.test(payload.action_id)) {
           browserActions.add(payload.action_id)
           const key = request.headers()['idempotency-key']
-          if (key) browserCommandKeys.add(`${payload.action_id}\u0000${key}`)
+          if (key) {
+            const actionKey = `${payload.action_id}\u0000${key}`
+            browserCommandKeys.add(actionKey)
+            const body = request.postData()
+            if (body !== null) {
+              const candidates = browserCommandBodies.get(actionKey) ?? []
+              if (!candidates.includes(body)) candidates.push(body)
+              browserCommandBodies.set(actionKey, candidates)
+            }
+          }
         }
       } catch { /* malformed request; the command response test covers its rejection */ }
     }
     page.on('request', observe)
     context.on('page', (newPage) => newPage.on('request', observe))
   })
-  test.afterEach(async ({}, testInfo) => {
+  test.afterEach(async ({ browser }, testInfo) => {
     const auditPath = process.env.BILLFORGE_E2E_ACTION_CASE_AUDIT
     if (!auditPath) return
     const output = execFileSync('python3', ['-c', `import json, sqlite3, sys
 db = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True)
-rows = list(db.execute('SELECT c.rowid,c.idempotency_key,c.action_id,c.status,EXISTS(SELECT 1 FROM admin_command_receipts r WHERE r.command_id=c.id) FROM admin_commands c WHERE c.rowid>? ORDER BY c.rowid', (int(sys.argv[2]),)))
+rows = list(db.execute('SELECT c.rowid,c.id,c.idempotency_key,c.action_id,c.status,(SELECT COUNT(*) FROM admin_command_receipts r WHERE r.command_id=c.id) FROM admin_commands c WHERE c.rowid>? ORDER BY c.rowid', (int(sys.argv[2]),)))
 print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { encoding: 'utf8' })
-    const rows = JSON.parse(output) as [number, string, string, string, number][]
+    const rows = JSON.parse(output) as [number, string, string, string, string, number][]
     if (rows.length > 0) lastAuditedCommandRowID = rows[rows.length - 1][0]
-    const browserReceiptActions = new Set(rows.filter(([, key, action, status, receipt]) =>
+    const browserReceiptRows = rows.filter(([, , key, action, status, receipt]) =>
       status === 'succeeded' && receipt === 1 && browserCommandKeys.has(`${action}\u0000${key}`),
-    ).map(([, , action]) => action))
+    )
+    const browserReceiptActions = new Set(browserReceiptRows.map(([, , , action]) => action))
+    const browserReplayActions: string[] = []
+    const replayCandidates = browserReceiptRows.filter(([, , , action]) => !replayedActionCases.has(action))
+    if (replayCandidates.length > 0 && testInfo.status === 'passed') {
+      const auditContext = await browser.newContext()
+      try {
+        const auditPage = await auditContext.newPage()
+        await signIn(auditPage)
+        const sessionResponse = await auditPage.request.get(`${app.baseURL}/admin/api/session`)
+        expect(sessionResponse.status()).toBe(200)
+        const session = await sessionResponse.json() as { csrf_token: string }
+        for (const [, commandID, key, action] of replayCandidates) {
+          if (replayedActionCases.has(action)) continue
+          const bodies = browserCommandBodies.get(`${action}\u0000${key}`) ?? []
+          if (bodies.length === 0) throw new Error(`No captured browser body for ${action} command ${commandID}`)
+          let matched = false
+          for (const body of bodies) {
+            const replay = await auditPage.request.post(`${app.baseURL}/admin/api/commands`, {
+              headers: {
+                Origin: app.baseURL,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': session.csrf_token,
+                'Idempotency-Key': key,
+              },
+              data: body,
+            })
+            if (replay.status() === 409) continue
+            expect(replay.status(), `${action} replay HTTP status`).toBe(200)
+            expect((await replay.json()).id, `${action} replay command ID`).toBe(commandID)
+            matched = true
+            break
+          }
+          if (!matched) throw new Error(`No original browser body replayed ${action} command ${commandID}`)
+          expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID), `${action} receipt count`).toBe(1)
+          replayedActionCases.add(action)
+          browserReplayActions.push(action)
+        }
+        expect(count('SELECT COUNT(*) FROM admin_commands WHERE rowid>?', String(lastAuditedCommandRowID)), 'replay created a new command').toBe(0)
+      } finally {
+        await auditContext.close()
+      }
+    }
     appendFileSync(auditPath, JSON.stringify({
       test: testInfo.title,
       browser_actions: [...browserActions].sort(),
       browser_receipt_actions: [...browserReceiptActions].sort(),
-      commands: rows.map(([, , action, status, receipt]) => ({ action, status, receipt: receipt === 1 })),
+      browser_replay_actions: browserReplayActions.sort(),
+      commands: rows.map(([, , , action, status, receipt]) => ({ action, status, receipt: receipt === 1 })),
     }) + '\n')
   })
 

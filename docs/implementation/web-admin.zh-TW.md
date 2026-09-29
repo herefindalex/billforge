@@ -9,6 +9,8 @@ React 19＋Ant Design 管理介面已接到本機 Go server。C01–C49 各有�
 
 價格遷移詳情的 `GET /admin/api/price-migrations/{id}` 現在回傳有界摘要與各狀態計數；`GET /admin/api/price-migrations/{id}/items` 以每頁 1–100 筆的游標查詢逐項資料，支援狀態篩選並回傳觀測時間。游標綁定批次 ID 與篩選條件；項目狀態變更後，應從第一頁重新查詢。前端預設每頁 20 筆，恢復按鈕依全批次衝突數判斷。金額仍以精確的最小貨幣單位字串傳遞。
 
+2026-09-29 驗證更新：完整 Playwright 套件 **155／155** 項通過。[C01–C49 動作證據盤點](web-admin-action-audit.zh-TW.md)收錄 **104** 筆瀏覽器案例，以及 **49／49** 項動作的成功收據與原鍵重播證據。A30 仍為部分完成，尚須逐項核對金流事實與其他恢復變體。
+
 ## 啟動
 
 1. 需要 Go 1.27、CGO、Node.js 與 pnpm。複製 `.env.example` 為 `.env`，設定 `BILLFORGE_ADMIN_USERNAME` 和 12–72 bytes 的 `BILLFORGE_ADMIN_PASSWORD`；限制 `.env` 讀取權限。可改用程序環境變數，且程序環境優先於檔案。

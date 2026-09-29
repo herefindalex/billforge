@@ -64,6 +64,100 @@ func TestAdminPaymentDispatchAndReconciliationReceipts(t *testing.T) {
 	}
 }
 
+func TestAdminPaymentDispatchReceiptFailureRecoversWithoutSecondCapture(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	commerce, provider := filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db")
+	l, err := Open(commerce, provider, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	quote, err := l.CreateQuote(ctx, "dispatch-receipt-failure-customer", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := l.AcceptQuote(ctx, quote.ID, quote.Fingerprint, "dispatch-receipt-failure-checkout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := json.RawMessage(`{}`)
+	preview, err := l.AdminCreatePreview(ctx, "local-admin", "C09", accepted.OperationID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "dispatch-receipt-failure-key", "C09", accepted.OperationID, payload, preview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.db.ExecContext(ctx, `CREATE TEMP TRIGGER fail_dispatch_receipt BEFORE INSERT ON admin_command_receipts BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AdminExecuteCommand(ctx, command.ID); err == nil {
+		t.Fatal("receipt failure must leave external dispatch recoverable")
+	}
+	balance, err := l.Balance(ctx, accepted.InvoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var operationStatus string
+	var allocations, receipts int
+	if err := l.db.QueryRowContext(ctx, `SELECT status FROM payment_operations WHERE id=?`, accepted.OperationID).Scan(&operationStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM allocations WHERE operation_id=?`, accepted.OperationID).Scan(&allocations); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if operationStatus != "succeeded" || balance.GrossCapturedMinor != 2000 || balance.OutstandingMinor != 0 || allocations != 1 || receipts != 0 || captureCount(t, l) != 1 {
+		t.Fatalf("external capture before receipt recovery: operation=%s balance=%+v allocations=%d receipts=%d", operationStatus, balance, allocations, receipts)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = Open(commerce, provider, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := l.AdminResumeAccepted(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, err = l.AdminCommand(ctx, command.ID)
+	if err != nil || command.Status != "succeeded" {
+		t.Fatalf("dispatch command did not recover: %+v err=%v", command, err)
+	}
+	var refs map[string]string
+	if err := json.Unmarshal(command.ResultRefs, &refs); err != nil {
+		t.Fatal(err)
+	}
+	if refs["target_id"] != accepted.OperationID || refs["operation_status"] != "succeeded" {
+		t.Fatalf("recovered dispatch references wrong operation: %+v", refs)
+	}
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "dispatch-receipt-failure-key", "C09", accepted.OperationID, payload, preview.ID)
+	if err != nil || !replay || replayed.ID != command.ID {
+		t.Fatalf("original key did not replay recovered dispatch: %+v replay=%v err=%v", replayed, replay, err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM allocations WHERE operation_id=?`, accepted.OperationID).Scan(&allocations); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if allocations != 1 || receipts != 1 || captureCount(t, l) != 1 {
+		t.Fatalf("dispatch recovery repeated a financial effect: allocations=%d receipts=%d", allocations, receipts)
+	}
+}
+
 func TestAdminPaymentDispatchWaitsForProviderEvidence(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -117,6 +211,116 @@ func TestAdminPaymentDispatchWaitsForProviderEvidence(t *testing.T) {
 	}
 	if receipts != 1 {
 		t.Fatalf("receipt=%d", receipts)
+	}
+}
+
+func TestAdminRefundDispatchReceiptFailureRecoversWithoutSecondRefund(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	commerce, provider := filepath.Join(dir, "commerce.db"), filepath.Join(dir, "provider.db")
+	l, err := Open(commerce, provider, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	quote, err := l.CreateQuote(ctx, "refund-receipt-failure-customer", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paid, err := l.AcceptQuote(ctx, quote.ID, quote.Fingerprint, "refund-receipt-failure-checkout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.DispatchNext(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	correction, err := l.PostReduction(ctx, paid.InvoiceID, 1000, "service credit", "refund-receipt-failure-reduction")
+	if err != nil || len(correction.GrantIDs) != 1 {
+		t.Fatalf("correction: %+v err=%v", correction, err)
+	}
+	grantID := correction.GrantIDs[0]
+	refundID, err := l.ReserveRefund(ctx, grantID, 400, "refund-receipt-failure-reservation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := json.RawMessage(`{}`)
+	preview, err := l.AdminCreatePreview(ctx, "local-admin", "C16", refundID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := l.AdminSubmitCommand(ctx, "local-admin", "refund-receipt-failure-key", "C16", refundID, payload, preview.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.db.ExecContext(ctx, `CREATE TEMP TRIGGER fail_refund_dispatch_receipt BEFORE INSERT ON admin_command_receipts BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AdminExecuteCommand(ctx, command.ID); err == nil {
+		t.Fatal("receipt failure must leave external refund recoverable")
+	}
+	credit, err := l.CreditBalance(ctx, grantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refundStatus string
+	var providerRefunds, receipts int
+	if err := l.db.QueryRowContext(ctx, `SELECT status FROM refund_operations WHERE id=?`, refundID).Scan(&refundStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM refunds`).Scan(&providerRefunds); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if refundStatus != "succeeded" || credit.RefundedMinor != 400 || credit.ReservedMinor != 0 || providerRefunds != 1 || receipts != 0 {
+		t.Fatalf("external refund before receipt recovery: status=%s credit=%+v provider_refunds=%d receipts=%d", refundStatus, credit, providerRefunds, receipts)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = Open(commerce, provider, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.InitAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := l.AdminResumeAccepted(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, err = l.AdminCommand(ctx, command.ID)
+	if err != nil || command.Status != "succeeded" {
+		t.Fatalf("refund command did not recover: %+v err=%v", command, err)
+	}
+	var refs map[string]string
+	if err := json.Unmarshal(command.ResultRefs, &refs); err != nil {
+		t.Fatal(err)
+	}
+	if refs["target_id"] != refundID || refs["operation_status"] != "succeeded" {
+		t.Fatalf("recovered refund references wrong operation: %+v", refs)
+	}
+	replayed, replay, err := l.AdminSubmitCommand(ctx, "local-admin", "refund-receipt-failure-key", "C16", refundID, payload, preview.ID)
+	if err != nil || !replay || replayed.ID != command.ID {
+		t.Fatalf("original key did not replay recovered refund: %+v replay=%v err=%v", replayed, replay, err)
+	}
+	credit, err = l.CreditBalance(ctx, grantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM refunds`).Scan(&providerRefunds); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?`, command.ID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if credit.RefundedMinor != 400 || credit.ReservedMinor != 0 || providerRefunds != 1 || receipts != 1 {
+		t.Fatalf("refund recovery repeated a financial effect: credit=%+v provider_refunds=%d receipts=%d", credit, providerRefunds, receipts)
 	}
 }
 

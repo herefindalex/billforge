@@ -299,6 +299,12 @@ func TestAdminSchemaFailureRollsBack(t *testing.T) {
 	if count != 0 {
 		t.Fatal("failed upgrade left a schema ledger")
 	}
+	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','index') AND name LIKE 'admin_%'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("failed upgrade left %d admin tables or indexes", count)
+	}
 	var total int64
 	if err := l.db.QueryRowContext(ctx, `SELECT total_minor FROM invoices WHERE id=?`, paid.InvoiceID).Scan(&total); err != nil || total != 2000 || captureCount(t, l) != 1 {
 		t.Fatalf("failed admin upgrade changed existing financial facts: total=%d captures=%d err=%v", total, captureCount(t, l), err)

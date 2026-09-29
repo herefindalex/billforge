@@ -59,6 +59,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     )
     const browserReceiptActions = new Set(browserReceiptRows.map(([, , , action]) => action))
     const browserReplayActions: string[] = []
+    const browserConflictActions: string[] = []
     const replayCandidates = browserReceiptRows.filter(([, , , action]) => !replayedActionCases.has(action))
     if (replayCandidates.length > 0 && testInfo.status === 'passed') {
       const auditContext = await browser.newContext()
@@ -72,27 +73,35 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
           if (replayedActionCases.has(action)) continue
           const bodies = browserCommandBodies.get(`${action}\u0000${key}`) ?? []
           if (bodies.length === 0) throw new Error(`No captured browser body for ${action} command ${commandID}`)
-          let matched = false
+          const headers = {
+            Origin: app.baseURL,
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': session.csrf_token,
+            'Idempotency-Key': key,
+          }
+          let matchedBody: string | null = null
           for (const body of bodies) {
             const replay = await auditPage.request.post(`${app.baseURL}/admin/api/commands`, {
-              headers: {
-                Origin: app.baseURL,
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': session.csrf_token,
-                'Idempotency-Key': key,
-              },
+              headers,
               data: body,
             })
             if (replay.status() === 409) continue
             expect(replay.status(), `${action} replay HTTP status`).toBe(200)
             expect((await replay.json()).id, `${action} replay command ID`).toBe(commandID)
-            matched = true
+            matchedBody = body
             break
           }
-          if (!matched) throw new Error(`No original browser body replayed ${action} command ${commandID}`)
+          if (matchedBody === null) throw new Error(`No original browser body replayed ${action} command ${commandID}`)
+          const conflict = await auditPage.request.post(`${app.baseURL}/admin/api/commands`, {
+            headers,
+            data: divergentCommandBody(matchedBody),
+          })
+          expect(conflict.status(), `${action} divergent replay HTTP status`).toBe(409)
+          expect((await conflict.json()).error?.code, `${action} divergent replay code`).toBe('IDEMPOTENCY_CONFLICT')
           expect(count('SELECT COUNT(*) FROM admin_command_receipts WHERE command_id=?', commandID), `${action} receipt count`).toBe(1)
           replayedActionCases.add(action)
           browserReplayActions.push(action)
+          browserConflictActions.push(action)
         }
         expect(count('SELECT COUNT(*) FROM admin_commands WHERE rowid>?', String(lastAuditedCommandRowID)), 'replay created a new command').toBe(0)
       } finally {
@@ -104,6 +113,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       browser_actions: [...browserActions].sort(),
       browser_receipt_actions: [...browserReceiptActions].sort(),
       browser_replay_actions: browserReplayActions.sort(),
+      browser_conflict_actions: browserConflictActions.sort(),
       commands: rows.map(([, , , action, status, receipt]) => ({ action, status, receipt: receipt === 1 })),
     }) + '\n')
   })
@@ -115,6 +125,29 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await page.getByRole('button', { name: '登 入' }).click()
     await expect(page).toHaveURL(/\/admin\/?$/)
     await expect(page.getByRole('heading', { name: '營運概覽' })).toBeVisible()
+  }
+
+  function divergentCommandBody(body: string): string {
+    const command = JSON.parse(body) as { action_id?: unknown; target_id?: unknown; preview_id?: unknown; payload?: unknown }
+    if (typeof command.preview_id === 'string' && command.preview_id !== '') {
+      command.preview_id += '-audit-conflict'
+    } else if (typeof command.target_id === 'string' && command.target_id !== '') {
+      command.target_id += '-audit-conflict'
+  } else if ((command.action_id === 'C01' || command.action_id === 'C26') && command.payload && typeof command.payload === 'object' && !Array.isArray(command.payload)) {
+    const payload = command.payload as Record<string, unknown>
+    const field = command.action_id === 'C01' ? 'customer_id' : 'event_id'
+    if (typeof payload[field] !== 'string' || payload[field] === '') throw new Error(`${command.action_id} browser body has no ${field}`)
+    payload[field] += '-audit-conflict'
+  } else if (command.action_id === 'C33' && command.payload && typeof command.payload === 'object' && !Array.isArray(command.payload)) {
+    const payload = command.payload as Record<string, unknown>
+    if (typeof payload.as_of !== 'string' || Number.isNaN(Date.parse(payload.as_of))) {
+      throw new Error('C33 browser body has no valid as_of')
+    }
+    payload.as_of = new Date(Date.parse(payload.as_of) + 1000).toISOString()
+  } else {
+      throw new Error(`No valid divergent request field for ${String(command.action_id)}`)
+    }
+    return JSON.stringify(command)
   }
 
   async function commitThenDropResponse(page: Page, route: Route) {

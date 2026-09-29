@@ -1335,6 +1335,10 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     const fingerprint = await page.getByRole('textbox', { name: '變更綁定 Fingerprint' }).inputValue()
     await page.getByRole('button', { name: '預覽立即升級' }).click()
     await expect(page.getByRole('button', { name: '確認升級' })).toBeVisible()
+    await page.getByRole('main').getByRole('button', { name: '確認升級' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '返回檢查' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByRole('main').getByRole('button', { name: '確認升級' })).toBeFocused()
 
     const other = await page.context().newPage()
     try {
@@ -1354,6 +1358,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       await expect(page.getByRole('textbox', { name: '已綁定的報價 ID' })).toHaveValue(quoteID)
       await expect(page.getByRole('textbox', { name: '變更綁定 Fingerprint' })).toHaveValue(fingerprint)
       await expect(page.getByRole('button', { name: '確認升級' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '預覽立即升級' })).toBeFocused()
       expect(count('SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?', subscriptionID)).toBe(0)
       expect(count('SELECT COUNT(*) FROM supplemental_invoices WHERE subscription_id=?', subscriptionID)).toBe(0)
       expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C04' AND c.target_id=?", subscriptionID)).toBe(0)
@@ -1411,6 +1416,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       await expect(stale.getByText(/現在：USD 39\.\d{2}/)).toBeVisible()
       await expect(page.getByRole('main').getByRole('button', { name: '確認升級' })).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(page.getByRole('main').getByRole('button', { name: '確認升級' })).toBeFocused()
       expect(count('SELECT COUNT(*) FROM immediate_changes WHERE subscription_id=?', subscriptionID)).toBe(0)
 
       await setClock('fixed', earlier)

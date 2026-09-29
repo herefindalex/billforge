@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Form, Input, Skeleton, Space, Typography } from 'antd'
 import { useLocation, useParams } from 'react-router-dom'
@@ -31,6 +31,7 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
   const previewExpired = usePreviewExpired(preview?.expires_at)
   const [staleAttempt, setStaleAttempt] = useState<StaleAttempt | null>(null)
   const [previewInvalidated, setPreviewInvalidated] = useState(false)
+  const [restoreFocus, setRestoreFocus] = useState(false)
   const formRevision = useRef(0)
   const [payload, setPayload] = useState<Pending['payload'] | null>(null)
   const [pending, setPending] = useState<Pending | null>(() => loadPending(id, actionID))
@@ -75,15 +76,31 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
           form.setFieldsValue({ quote_id: intent.payload.quote_id, fingerprint: intent.payload.fingerprint })
           setStaleAttempt({ preview, payload: intent.payload })
           void subscription.refetch().then((refreshed) => {
-            if (revision !== formRevision.current || refreshed.data?.Revision !== intent.payload.revision) return
-            createPreview.mutate({ input: intent.payload, revision })
+            if (revision !== formRevision.current || refreshed.data?.Revision !== intent.payload.revision) {
+              setRestoreFocus(true)
+              return
+            }
+            createPreview.mutate({ input: intent.payload, revision }, { onSettled: () => setRestoreFocus(true) })
           })
         } else {
           setStaleAttempt(null)
+          setRestoreFocus(true)
         }
       }
     },
   })
+  useEffect(() => {
+    if (!restoreFocus || pending !== null || subscription.isFetching || createPreview.isPending) return
+    const button = document.getElementById(`${actionID}-${preview ? 'confirm' : 'preview'}`) as HTMLButtonElement | null
+    if (!button || button.disabled) return
+    const frame = requestAnimationFrame(() => {
+      if (button.isConnected && !button.disabled) {
+        button.focus()
+        setRestoreFocus(false)
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [restoreFocus, pending, preview, subscription.isFetching, createPreview.isPending, actionID])
   const confirm = () => {
     if (!preview || !payload || !canConfirmPreview(preview)) return
     const intent: Pending = { key: crypto.randomUUID(), previewID: preview.preview_id, payload }
@@ -100,6 +117,7 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
         </> : <Money minor={preview.impact.amount_minor} currency={preview.impact.currency} />}
       </Space>,
       okText: immediate ? '確認升級' : '確認排程', cancelText: '返回檢查',
+      onCancel: () => setRestoreFocus(true),
       onOk: () => {
         if (!canConfirmPreview(preview)) return
         sessionStorage.setItem(storageKey(id, actionID), JSON.stringify(intent))
@@ -134,7 +152,7 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
       <Form form={form} key={id} layout="vertical" className="result-card" initialValues={initial} disabled={pending !== null || commandID !== null || (staleAttempt !== null && subscription.isFetching)} onValuesChange={onValuesChange} onFinish={(values: Input) => { setPreviewInvalidated(false); createPreview.mutate({ input: { quote_id: values.quote_id.trim(), fingerprint: values.fingerprint.trim(), revision: subscription.data.Revision }, revision: formRevision.current }) }}>
         <Form.Item label="已綁定的報價 ID" name="quote_id" rules={[{ required: true, message: '請輸入報價 ID' }]}><Input /></Form.Item>
         <Form.Item label="變更綁定 Fingerprint" name="fingerprint" rules={[{ required: true, message: '請輸入 Fingerprint' }]}><Input /></Form.Item>
-        <Button type="primary" htmlType="submit" loading={createPreview.isPending} disabled={subscription.data.Status !== 'active' || pending !== null || commandID !== null || (staleAttempt !== null && subscription.isFetching)}>{immediate ? '預覽立即升級' : '預覽下期變更'}</Button>
+        <Button id={`${actionID}-preview`} type="primary" htmlType="submit" loading={createPreview.isPending} disabled={subscription.data.Status !== 'active' || pending !== null || commandID !== null || (staleAttempt !== null && subscription.isFetching)}>{immediate ? '預覽立即升級' : '預覽下期變更'}</Button>
       </Form>
     </Card>
     {staleAttempt && <Alert type="warning" showIcon className="result-card" message="原方案變更預覽已失效，請檢查最新來源" description={<Descriptions column={1} size="small" items={[
@@ -169,7 +187,7 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
         { key: 'effective', label: immediate ? '帳期結束' : '生效時間', children: new Date(preview.impact.effective_at ?? preview.impact.period_end).toLocaleString() },
         { key: 'expiry', label: '預覽有效至', children: new Date(preview.expires_at).toLocaleString() },
       ]} />
-      <Button className="result-card" onClick={confirm} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>{immediate ? '確認升級' : '確認排程'}</Button>
+      <Button id={`${actionID}-confirm`} className="result-card" onClick={confirm} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>{immediate ? '確認升級' : '確認排程'}</Button>
     </Card>}
     {submit.isError && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效，請重新預覽' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '命令未被接受，請檢查輸入' : '命令結果尚未確認'} description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card">

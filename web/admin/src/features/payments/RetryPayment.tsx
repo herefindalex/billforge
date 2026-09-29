@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App as AntApp, Button, Card, Descriptions, Space, Typography } from 'antd'
 import { useParams } from 'react-router-dom'
@@ -23,6 +23,7 @@ export default function RetryPayment({ session }: { session: Session }) {
   const [preview, setPreview] = useState<Preview | null>(null)
   const previewExpired = usePreviewExpired(preview?.expires_at)
   const [staleRetry, setStaleRetry] = useState<StaleRetry | null>(null)
+  const [restoreFocus, setRestoreFocus] = useState(false)
   const [pending, setPending] = useState<Pending | null>(() => loadPending(id))
   const [commandID, setCommandID] = useStoredCommandID(session.actor_id, 'C08', id)
   const command = useQuery<Command>({ queryKey: ['command', commandID], queryFn: () => api.command(commandID!), enabled: commandID !== null, refetchInterval: (query) => query.state.data?.status === 'accepted' || query.state.data?.status === 'running' ? 1500 : false })
@@ -49,13 +50,27 @@ export default function RetryPayment({ session }: { session: Session }) {
             currency: preview?.impact.currency ?? intent.currency ?? '',
           })
           if (invoiceID) void queryClient.invalidateQueries({ queryKey: ['invoice', invoiceID] })
-          createPreview.mutate()
+          createPreview.mutate(undefined, { onSettled: () => setRestoreFocus(true) })
         } else {
           setStaleRetry(null)
+          setRestoreFocus(true)
         }
       }
     },
   })
+  useEffect(() => {
+    if (!restoreFocus || pending !== null || createPreview.isPending || (staleRetry !== null && invoice.isFetching)) return
+    const targetID = preview ? 'retry-payment-confirm' : staleRetry ? 'stale-retry-warning' : 'retry-payment-preview'
+    const target = document.getElementById(targetID) as HTMLElement | null
+    if (!target || (target instanceof HTMLButtonElement && target.disabled)) return
+    const frame = requestAnimationFrame(() => {
+      if (target.isConnected && !(target instanceof HTMLButtonElement && target.disabled)) {
+        target.focus()
+        setRestoreFocus(false)
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [restoreFocus, pending, createPreview.isPending, staleRetry, invoice.isFetching, preview])
   const confirm = () => {
     if (!preview || !canConfirmPreview(preview)) return
     const intent: Pending = { key: crypto.randomUUID(), previewID: preview.preview_id, invoiceID: preview.impact.invoice_id, amountMinor: preview.impact.retry_amount_minor, currency: preview.impact.currency }
@@ -76,8 +91,8 @@ export default function RetryPayment({ session }: { session: Session }) {
   const otherOperations = currentInvoice?.Payments.filter((payment) => payment.ID !== id) ?? []
   return <div className="form-page">
     <Typography.Title level={2}>重試確定失敗的付款</Typography.Title>
-    <Card><Typography.Paragraph>原付款操作 ID：<Typography.Text copyable>{id}</Typography.Text></Typography.Paragraph><Button type="primary" onClick={() => createPreview.mutate()} loading={createPreview.isPending} disabled={pending !== null || commandID !== null}>預覽重試</Button></Card>
-    {staleRetry && <Alert type="warning" showIcon className="result-card" message="原重試預覽已失效，請檢查帳單的最新狀態" description={<Space direction="vertical" style={{ width: '100%' }}>
+    <Card><Typography.Paragraph>原付款操作 ID：<Typography.Text copyable>{id}</Typography.Text></Typography.Paragraph><Button id="retry-payment-preview" type="primary" onClick={() => createPreview.mutate()} loading={createPreview.isPending} disabled={pending !== null || commandID !== null}>預覽重試</Button></Card>
+    {staleRetry && <div id="stale-retry-warning" tabIndex={-1} aria-label="原重試預覽已失效，請檢查帳單的最新狀態" className="result-card"><Alert type="warning" showIcon message="原重試預覽已失效，請檢查帳單的最新狀態" description={<Space direction="vertical" style={{ width: '100%' }}>
       <Descriptions column={1} size="small" items={[
         { key: 'amount', label: '重試金額', children: <Space wrap><span>原先：{staleRetry.amountMinor ? <Money minor={staleRetry.amountMinor} currency={staleRetry.currency} /> : '未知'}</span><span>現在：{preview ? <Money minor={preview.impact.retry_amount_minor} currency={preview.impact.currency} /> : '尚無新預覽'}</span></Space> },
         { key: 'balance', label: '目前未清餘額', children: currentInvoice ? <Money minor={currentInvoice.Balance.OutstandingMinor} currency={currentInvoice.Balance.Currency} /> : invoice.isError ? '讀取失敗' : staleRetry.invoiceID ? '讀取中…' : '缺少帳單 ID' },
@@ -87,7 +102,7 @@ export default function RetryPayment({ session }: { session: Session }) {
       ]} />
       {staleRetry.invoiceID && <Button href={`/admin/invoices/${encodeURIComponent(staleRetry.invoiceID)}`}>查看帳單詳情</Button>}
       {invoice.isError && <Button onClick={() => void invoice.refetch()}>重新讀取帳單</Button>}
-    </Space>} />}
+    </Space>} /></div>}
     {pending && !commandID && <Alert type="warning" showIcon className="result-card" message="原重試命令的結果尚未確認" description={<Button onClick={() => submit.mutate(pending)} loading={submit.isPending}>用原 request key 查詢</Button>} />}
     {createPreview.isError && <Alert type="error" showIcon className="result-card" message="無法建立預覽" description={createPreview.error.message} />}
     {preview && <Card title="重試預覽" className="result-card">
@@ -97,7 +112,7 @@ export default function RetryPayment({ session }: { session: Session }) {
         { key: 'amount', label: '重試金額', children: <Money minor={preview.impact.retry_amount_minor} currency={preview.impact.currency} /> },
         { key: 'expiry', label: '預覽有效至', children: new Date(preview.expires_at).toLocaleString() },
       ]} />
-      <Button className="result-card" onClick={confirm} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>確認重試</Button>
+      <Button id="retry-payment-confirm" className="result-card" onClick={confirm} disabled={!canConfirmPreview(preview) || previewExpired || pending !== null}>確認重試</Button>
     </Card>}
     {submit.isError && <Alert type={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? 'warning' : 'error'} showIcon className="result-card" message={submit.error instanceof HttpError && submit.error.code === 'PREVIEW_STALE' ? '原預覽已失效，請重新預覽' : submit.error instanceof HttpError && (submit.error.status === 400 || submit.error.status === 422) ? '命令未被接受，請檢查輸入' : '命令結果尚未確認'} description={submit.error.message} />}
     {commandID && <Card title="命令結果" className="result-card">

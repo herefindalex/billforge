@@ -1091,6 +1091,22 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await page.getByRole('button', { name: '預覽重試' }).click()
     await expect(page.getByRole('button', { name: '確認重試' })).toBeVisible()
     const beforeOperations = count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)
+    await page.route('**/admin/api/commands', async (route) => {
+      if (route.request().method() === 'POST' && (route.request().postData() ?? '').includes('"action_id":"C08"')) {
+        await route.fulfill({ status: 422, contentType: 'application/json', body: '{"error":{"code":"INVALID_PAYLOAD","message":"Injected rejection"}}' })
+      } else {
+        await route.continue()
+      }
+    }, { times: 1 })
+    await page.getByRole('button', { name: '確認重試' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '建立重試' }).click()
+    await expect(page.getByText('命令未被接受，請檢查輸入')).toBeVisible()
+    await expect(page.getByRole('button', { name: '預覽重試' })).toBeFocused()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C08' AND target_id=?", operationID)).toBe(0)
+    expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations)
+    await page.unroute('**/admin/api/commands')
+    await page.getByRole('button', { name: '預覽重試' }).click()
+    await expect(page.getByRole('button', { name: '確認重試' })).toBeVisible()
     const other = await page.context().newPage()
     try {
       await other.goto(`${app.baseURL}/admin/invoices/${invoiceID}/reductions/new`)
@@ -1109,6 +1125,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       await expect(stale.getByText('原先：USD 20.00')).toBeVisible()
       await expect(stale.getByText('現在：USD 15.00')).toBeVisible()
       await expect(stale.locator('.ant-descriptions-item').filter({ hasText: '目前未清餘額' }).getByText('USD 15.00')).toBeVisible()
+      await expect(page.getByRole('button', { name: '確認重試' })).toBeFocused()
       expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations)
       await other.goto(`${app.baseURL}/admin/payments/${operationID}/retry`)
       await other.getByRole('button', { name: '預覽重試' }).click()
@@ -1128,6 +1145,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       await expect(otherStale.locator('.ant-descriptions-item').filter({ hasText: '其他付款操作' }).getByText(new RegExp(retryOperationID))).toBeVisible()
       await expect(other.getByText('無法建立預覽')).toBeVisible()
       await expect(other.getByRole('button', { name: '確認重試' })).toHaveCount(0)
+      await expect(other.locator('#stale-retry-warning')).toBeFocused()
       expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations + 1)
     } finally {
       await other.close()

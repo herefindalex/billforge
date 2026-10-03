@@ -148,6 +148,7 @@ export default function SchedulePlan({ session, immediate = false }: { session: 
       setPayload(null)
       setPreviewInvalidated(true)
     }
+    createPreview.reset()
   }
   if (subscription.isPending) return <Skeleton active />
   if (subscription.isError) return <ReadFailureWithRecovery title="訂閱無法載入" message={subscription.error.message} onRetryRead={() => { void subscription.refetch() }} hasPendingCommand={pending !== null} onRecoverCommand={() => { if (pending) submit.mutate(pending) }} recovering={submit.isPending} commandID={commandID} recoveryError={submit.isError ? submit.error.message : null} />

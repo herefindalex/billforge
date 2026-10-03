@@ -741,6 +741,9 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
   test('lost reduction response recovers its original correction and credit', async ({ page }) => {
     await signIn(page)
     const { invoiceID } = await createPaidSubscription(page, `reduction-lost-${randomUUID()}`, 'basic')
+    const originalInvoice = await page.request.get(`${app.baseURL}/admin/api/invoices/${invoiceID}`)
+    expect(originalInvoice.status()).toBe(200)
+    const originalLines = (await originalInvoice.json()).invoice.Lines
     await page.goto(`${app.baseURL}/admin/invoices/${invoiceID}/reductions/new`)
     await page.getByRole('textbox', { name: '減額（最小貨幣單位）' }).fill('500')
     await page.getByRole('textbox', { name: '減額理由' }).fill('lost response recovery')
@@ -773,6 +776,18 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(count('SELECT COUNT(*) FROM corrections WHERE invoice_id=?', invoiceID)).toBe(1)
     expect(count('SELECT COUNT(*) FROM credit_grants WHERE source_invoice_id=?', invoiceID)).toBe(1)
     expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C11' AND c.target_id=?", invoiceID)).toBe(1)
+    const recoveredInvoice = await page.request.get(`${app.baseURL}/admin/api/invoices/${invoiceID}`)
+    expect(recoveredInvoice.status()).toBe(200)
+    expect((await recoveredInvoice.json()).invoice.Lines).toEqual(originalLines)
+    await page.goto(`${app.baseURL}/admin/invoices/${invoiceID}`)
+    for (const [label, amount] of [
+      ['原始金額', 'USD 20.00'],
+      ['目前應收', 'USD 15.00'],
+      ['已確認收款', 'USD 20.00'],
+      ['尚待支付', 'USD 0.00'],
+    ]) {
+      await expect(page.locator('.ant-descriptions-row').filter({ has: page.getByText(label, { exact: true }) }).getByText(amount, { exact: true })).toBeVisible()
+    }
   })
 
   test('a lost quote acceptance response recovers one subscription and invoice', async ({ page }) => {
@@ -906,6 +921,29 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(count('SELECT COUNT(*) FROM admin_commands WHERE action_id=?', 'C07')).toBe(before)
   })
 
+  test('editing an overpayment clears the rejected preview before another request', async ({ page }) => {
+    await signIn(page)
+    const { invoiceID, operationID } = await createAcceptedSubscription(page, `overpayment-edit-${randomUUID()}`, 'basic')
+    await page.goto(`${app.baseURL}/admin/invoices/${invoiceID}/payments/new`)
+    const amount = page.getByRole('textbox', { name: '付款金額（最小貨幣單位）' })
+    await amount.fill('2001')
+    const rejected = page.waitForResponse((response) => response.url().endsWith('/admin/api/previews') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: '預覽付款' }).click()
+    expect((await rejected).status()).toBe(409)
+    await expect(page.getByText('無法建立預覽', { exact: true })).toBeVisible()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)).toBe(0)
+    expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(1)
+    expect(scalar('SELECT status FROM payment_operations WHERE id=?', operationID)).toBe('created')
+
+    await amount.fill('1000')
+    await expect(page.getByText('無法建立預覽', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '確認建立付款' })).toHaveCount(0)
+    await page.getByRole('button', { name: '預覽付款' }).click()
+    await expect(page.getByText('付款預覽', { exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'USD 10.00', exact: true })).toBeVisible()
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)).toBe(0)
+  })
+
   test('a rejected payment preview releases its unadmitted intent for a fresh preview', async ({ page }) => {
     await signIn(page)
     const { invoiceID } = await createAcceptedSubscription(page, `payment-stale-${randomUUID()}`, 'basic')
@@ -989,6 +1027,8 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)).toBe(0)
     expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations)
 
+    await page.getByRole('textbox', { name: '付款金額（最小貨幣單位）' }).fill('400')
+    await expect(page.getByText('命令未被接受，請檢查輸入', { exact: true })).toHaveCount(0)
     await page.unroute('**/admin/api/commands')
     await page.getByRole('button', { name: '預覽付款' }).click()
     await page.getByRole('button', { name: '確認建立付款' }).click()
@@ -996,9 +1036,10 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await expect(page.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
     expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C07' AND target_id=?", invoiceID)).toBe(1)
     expect(count('SELECT COUNT(*) FROM payment_operations WHERE invoice_id=?', invoiceID)).toBe(beforeOperations + 1)
+    expect(count("SELECT amount_minor FROM payment_operations WHERE invoice_id=? AND status='created'", invoiceID)).toBe(400)
   })
 
-  test('competing payment previews keep only the winning replacement operation', async ({ page }) => {
+  test('competing payment previews collect only the winning replacement amount', async ({ page }) => {
     await signIn(page)
     const { invoiceID, operationID } = await createAcceptedSubscription(page, `competing-payment-${randomUUID()}`, 'basic')
     const oldProviderKey = scalar('SELECT provider_key FROM payment_operations WHERE id=?', operationID)
@@ -1031,6 +1072,23 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       const newProviderKey = scalar('SELECT provider_key FROM payment_operations WHERE id=?', replacementID)
       expect(Number(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', oldProviderKey, app.providerPath))).toBe(0)
       expect(Number(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', newProviderKey, app.providerPath))).toBe(0)
+
+      await other.goto(`${app.baseURL}/admin/payments/${replacementID}/dispatch`)
+      await other.getByRole('button', { name: '建立預覽' }).click()
+      await other.getByRole('button', { name: '確認送出付款' }).last().click()
+      await other.getByRole('dialog').getByRole('button', { name: '確認送出付款' }).click()
+      await expect(other.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
+      expect(scalar('SELECT status FROM payment_operations WHERE id=?', replacementID)).toBe('succeeded')
+      expect(scalar('SELECT status FROM payment_operations WHERE id=?', operationID)).toBe('cancelled')
+      expect(scalar('SELECT amount_minor FROM captures WHERE provider_key=?', newProviderKey, app.providerPath)).toBe('1500')
+      expect(scalar('SELECT currency FROM captures WHERE provider_key=?', newProviderKey, app.providerPath)).toBe('USD')
+      expect(scalar('SELECT status FROM captures WHERE provider_key=?', newProviderKey, app.providerPath)).toBe('succeeded')
+      expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', newProviderKey, app.providerPath)).toBe('1')
+      expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', oldProviderKey, app.providerPath)).toBe('0')
+      expect(count('SELECT COUNT(*) FROM allocations WHERE invoice_id=?', invoiceID)).toBe(1)
+      expect(count('SELECT amount_minor FROM allocations WHERE operation_id=?', replacementID)).toBe(1500)
+      expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C07' AND c.target_id=?", invoiceID)).toBe(1)
+      expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C09' AND c.target_id=?", replacementID)).toBe(1)
     } finally {
       await other.close()
     }
@@ -1285,7 +1343,7 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C08' AND c.target_id=?", operationID)).toBe(1)
       const retryOperationID = scalar('SELECT id FROM payment_operations WHERE invoice_id=? ORDER BY rowid DESC LIMIT 1', invoiceID)
       const retryProviderKey = scalar('SELECT provider_key FROM payment_operations WHERE id=?', retryOperationID)
-      const retryAmount = scalar('SELECT amount_minor FROM payment_operations WHERE id=?', retryOperationID)
+      expect(scalar('SELECT amount_minor FROM payment_operations WHERE id=?', retryOperationID)).toBe('2000')
       expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', retryProviderKey, app.providerPath)).toBe('0')
 
       await other.goto(`${app.baseURL}/admin/payments/${retryOperationID}/dispatch`)
@@ -1294,8 +1352,14 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
       await other.getByRole('dialog').getByRole('button', { name: '確認送出付款' }).click()
       await expect(other.getByRole('main').getByText('succeeded', { exact: true }).first()).toBeVisible()
       expect(scalar('SELECT status FROM payment_operations WHERE id=?', retryOperationID)).toBe('succeeded')
-      expect(scalar('SELECT amount_minor FROM captures WHERE provider_key=?', retryProviderKey, app.providerPath)).toBe(retryAmount)
+      expect(scalar('SELECT status FROM payment_operations WHERE id=?', operationID)).toBe('definitively_failed')
+      expect(scalar('SELECT amount_minor FROM captures WHERE provider_key=?', retryProviderKey, app.providerPath)).toBe('2000')
+      expect(scalar('SELECT currency FROM captures WHERE provider_key=?', retryProviderKey, app.providerPath)).toBe('USD')
+      expect(scalar('SELECT status FROM captures WHERE provider_key=?', retryProviderKey, app.providerPath)).toBe('succeeded')
       expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', retryProviderKey, app.providerPath)).toBe('1')
+      expect(count('SELECT COUNT(*) FROM allocations WHERE invoice_id=?', invoiceID)).toBe(1)
+      expect(count('SELECT amount_minor FROM allocations WHERE operation_id=?', retryOperationID)).toBe(2000)
+      expect(count("SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id WHERE c.action_id='C09' AND c.target_id=?", retryOperationID)).toBe(1)
     } finally {
       await other.close()
     }
@@ -1398,6 +1462,14 @@ print(json.dumps(rows))`, app.commercePath, String(lastAuditedCommandRowID)], { 
     await expect(quoteField).toHaveValue(sevenSeatQuoteID)
     await expect(page.getByRole('textbox', { name: '變更綁定 Fingerprint' })).toHaveValue(originalFingerprint)
     expect(count("SELECT COUNT(*) FROM subscription_schedules WHERE subscription_id=? AND kind='change'", subscriptionID)).toBe(0)
+    expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(0)
+
+    await quoteField.fill(fiveSeatQuoteID)
+    await expect(page.getByText('報價與綁定資料不一致', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '確認排程', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: '預覽下期變更' }).click()
+    await expect(page.getByText('變更預覽', { exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'USD 100.00', exact: true })).toBeVisible()
     expect(count("SELECT COUNT(*) FROM admin_commands WHERE action_id='C03' AND target_id=?", subscriptionID)).toBe(0)
   })
 
@@ -2934,6 +3006,9 @@ db.commit()`
       expect(count(`SELECT COUNT(*) FROM admin_command_receipts r JOIN admin_commands c ON c.id=r.command_id
         WHERE c.action_id=? AND c.target_id=?`, actionID, subscriptionID)).toBe(1)
     }
+    await page.goto(`${app.baseURL}/admin/subscriptions/${subscriptionID}`)
+    await expect(page.getByText('下期安排', { exact: true })).toBeVisible()
+    await expect(page.locator('.ant-descriptions-row').filter({ has: page.getByText('價格與席次變更', { exact: true }) })).toContainText('pro-v1／5 席')
   })
 
   test('funded reduction reserves and refunds exactly once after a lost response', async ({ page }) => {
@@ -5632,6 +5707,13 @@ db.commit()
     expect(scalar('SELECT COUNT(*) FROM captures WHERE provider_key=?', oldProviderKey, app.providerPath)).toBe('0')
     await page.goto(`${app.baseURL}/admin/invoices/${targetInvoiceID}`)
     await expect(page.getByRole('row', { name: /尚待支付/ }).getByText('USD 0.00', { exact: true })).toBeVisible()
+
+    await page.goto(`${app.baseURL}/admin/credits/${grantID}`)
+    const available = page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '可用額度', exact: true }) })
+    await expect(available.getByRole('cell', { name: 'USD 0.00', exact: true })).toBeVisible()
+    await expect(page.getByText('目前沒有可用額度', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '抵扣帳單', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '預留退款', exact: true })).toBeDisabled()
   })
 
   test('C11 reduces an unpaid invoice cancels the old collection and captures only remainder', async ({ page }) => {
@@ -5850,6 +5932,19 @@ db.commit()
 
   test('invoice history page follows the cursor and returns to an earlier page', async ({ page }) => {
     await signIn(page)
+    await page.route('**/admin/api/invoices/inv_history_mock', async (route) => {
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({
+          invoice: {
+            ID: 'inv_history_mock', SubscriptionID: 'sub_history_mock', FinalizedAt: '2026-09-27T00:00:00Z', Period: null,
+            Balance: { Currency: 'USD', OriginalMinor: '2000', ReductionsMinor: '101', ObligationMinor: '1899', GrossCapturedMinor: '2000', ReleasedMinor: '101', CreditAppliedMinor: '0', NetAppliedMinor: '1899', OutstandingMinor: '0' },
+            Lines: [], Payments: [], Corrections: [], CorrectionsTruncated: true, CreditApplications: [], CreditGrants: [], Refunds: [],
+          },
+          observed_at: '2026-09-27T00:00:00Z',
+        }),
+      })
+    })
     await page.route('**/admin/api/invoices/inv_history_mock/history/corrections*', async (route) => {
       const after = new URL(route.request().url()).searchParams.get('cursor')
       const id = after ? 'corr_older' : 'corr_newer'
@@ -5861,7 +5956,10 @@ db.commit()
         }),
       })
     })
-    await page.goto(`${app.baseURL}/admin/invoices/inv_history_mock/history/corrections`)
+    await page.goto(`${app.baseURL}/admin/invoices/inv_history_mock`)
+    await expect(page.getByText('僅顯示最近 100 筆減額更正', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '查看完整歷史' }).click()
+    await expect(page).toHaveURL(/\/admin\/invoices\/inv_history_mock\/history\/corrections$/)
     await expect(page.getByRole('row').filter({ hasText: 'corr_newer' })).toBeVisible()
     await page.getByRole('button', { name: '下一頁' }).click()
     await expect(page.getByText('第 2 頁', { exact: true })).toBeVisible()

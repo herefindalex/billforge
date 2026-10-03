@@ -130,6 +130,10 @@ func TestAdminCompetingPaymentCommandsAcrossProcesses(t *testing.T) {
 			break
 		}
 		if ctx.Err() != nil {
+			for i, worker := range workers {
+				err := worker.cmd.Wait()
+				t.Logf("worker %d before ready: %v\n%s", i, err, worker.output.String())
+			}
 			t.Fatalf("workers did not become ready: %v", ctx.Err())
 		}
 		time.Sleep(5 * time.Millisecond)

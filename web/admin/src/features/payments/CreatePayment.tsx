@@ -81,6 +81,8 @@ export default function CreatePayment({ session }: { session: Session }) {
       setPreview(null)
       setPreviewInvalidated(true)
     }
+    submit.reset()
+    createPreview.reset()
   }
   const confirm = () => {
     if (!preview || !canConfirmPreview(preview)) return

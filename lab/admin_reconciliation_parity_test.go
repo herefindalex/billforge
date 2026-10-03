@@ -205,7 +205,8 @@ func TestAdminUnsafeProviderCaptureStaysManualReviewMatchesDomain(t *testing.T) 
 	for _, item := range []struct {
 		l         *Lab
 		findingID string
-	}{{domain, domainMismatch.ID}, {admin, adminMismatch.ID}} {
+		invoiceID string
+	}{{domain, domainMismatch.ID, domainReceipt.InvoiceID}, {admin, adminMismatch.ID, adminReceipt.InvoiceID}} {
 		var status, reviewer, decision string
 		if err := item.l.db.QueryRowContext(ctx, `SELECT status FROM discrepancies WHERE id=?`, item.findingID).Scan(&status); err != nil {
 			t.Fatal(err)
@@ -215,6 +216,19 @@ func TestAdminUnsafeProviderCaptureStaysManualReviewMatchesDomain(t *testing.T) 
 		}
 		if status != "investigating" || reviewer != "local-admin" || decision != "investigate_provider" {
 			t.Fatalf("manual review state=%s reviewer=%s decision=%s", status, reviewer, decision)
+		}
+		balance, err := item.l.Balance(ctx, item.invoiceID)
+		if err != nil || balance.OutstandingMinor != 2000 || balance.NetAppliedMinor != 0 {
+			t.Fatalf("manual decision changed invoice balance: %+v err=%v", balance, err)
+		}
+		var corrections, allocations int
+		if err := item.l.db.QueryRowContext(ctx, `SELECT
+			(SELECT COUNT(*) FROM corrections WHERE invoice_id=?),
+			(SELECT COUNT(*) FROM allocations WHERE invoice_id=?)`, item.invoiceID, item.invoiceID).Scan(&corrections, &allocations); err != nil {
+			t.Fatal(err)
+		}
+		if corrections != 0 || allocations != 0 {
+			t.Fatalf("manual decision created financial facts: corrections=%d allocations=%d", corrections, allocations)
 		}
 	}
 	var reason string

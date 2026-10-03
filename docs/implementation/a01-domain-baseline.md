@@ -3,7 +3,9 @@
 **English** | [繁體中文](a01-domain-baseline.zh-TW.md) | [简体中文](a01-domain-baseline.zh-CN.md)
 
 
-Status: Partially completed. 2026-09-27 `go test ./... -count=1`, 950/950 passed with the isolated commerce/provider SQLite; `go vet ./...` has been approved. maintaining the original behavior in the in-app fixture by representing the following paths that already exist: Only instances of "directly parallel" listings prove the same financial facts as direct domain entries in a management command.
+Status: bounded local pass. S01-S12/P01-P03 have domain/admin fixtures, fixed financial/status oracles and shared transaction-helper mapping. Current full Go regression passed 355 top-level tests / 1115 test and subtest events, zero failures. The first process-ready timeout was not reproduced by 1 isolated run, 20 diagnostic repeats or the final full run; its cause remains unconfirmed and test-only exit diagnostics do not claim a fix.
+
+Historical 2026-09-27 checkpoint: 950/950 and go vet passed.
 
 |The situation.|Domain or API baseline|Related management operations|Directly compared to yes.|
 | --- | --- | --- | --- |
@@ -58,4 +60,8 @@ The amount is kept in the smallest unit of the USD integer. The above is a direc
 |It's clear that the following prices are changed only once.|C31 set a follow-up price; C44/C32 with direct field paths, periodic receipts for contracts 7500, two Net30 bills, 10000 bills after transfer, payment obligations and actual receipts; On 1 November, the index was added once, and on 1 December, only two price indices were added and one contract was converted.|The contract fixture covers the specified subsequent price branch.|
 |New rate should not create an obligation for old clients who have not shown the cost.|C19/C20/C21 AI token SKU is released through the admin command; `/v1` offers reveal three components with the current amount of 3000; without `meter:ai_tokens_admin` capability, it returns 409 and zero subscriptions, otherwise it accepts.|This covers the local SKU and old API client; unverified consumer versions are not included.|
 
-This control does not equate the original domain testing with all management inputs by inferring. An unmarked direct comparison situation still needs to verify whether its management command uses the same area of transaction, source protection and recovery rules; A01 thus maintains the partial completion.
+The S01-S12/P01-P03 mapping verifies public domain paths and shared transaction helpers. Extra variants outside these fixtures remain scoped evidence limits, not proof of universal equivalence.
+
+```sh
+rtk proxy go test ./... -count=1 -timeout=300s -json > /tmp/billforge-go-acceptance-diagnostic.json
+```

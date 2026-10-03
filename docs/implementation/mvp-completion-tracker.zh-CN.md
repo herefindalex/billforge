@@ -21,6 +21,10 @@
 | P01：配置式新 SKU | [计量 SKU 切片完成](phase-p1-metered-sku.zh-CN.md) | 保持 AI tokens 新购、事件、关帐、续约发票与旧 tasks 计价回归。 |
 | P02：多 consumer 与 v1 API 兼容 | [本机 v1 API 切片完成](phase-p2-v1-api.zh-CN.md) | 保持旧 client 新费用拒绝、合约能力、UNKNOWN／grace、订阅变更的价格／席次钉选、应付时点估值及更正读取契约回归。 |
 | P03：Account／Commerce 边界与灰度迁移 | [本机迁移演练完成](phase-p3-account-cutover.zh-CN.md) | 保持来源 ID 映射、shadow、历史回填、单一写入者、停止条件及 adapter 读取回归。 |
-| Web Admin：登录、查找、C01–C49 操作 | [功能已接线，完整验收进行中](web-admin.zh-CN.md) | 完成 [A01–A30 验收计划](../design/08-web-admin-test-plan.zh-CN.md) 的逐项证据与 browser／故障／权限矩阵；未完成前不标为整体交付完成。 |
+| Web Admin：登录、查找、C01–C49 操作 | [本机交付完成](web-admin.zh-CN.md) | 最新限定验收：30／30 个场景通过，T01–T22 全完成，Web Admin 本机交付完成。可重跑证据与限制见 [动作证据盘点](web-admin-action-audit.zh-CN.md)。 |
 
 可发布的 `PriceVersion` 组件、席次快照及订阅 revision／assignment 已在 F3 落地；期中升级与补偿已在 F4 落地；cohort 与既有客户价迁移已在 F5 落地；tasks 用量关帐与更正已在 F6 落地；企业合约与 Net30 已在 F7 落地；S12 对帐修复、P01 新 meter、P02 本机 v1 API 与 P03 帐户迁移演练亦有程序及验收测试。真实支付、税、多币别、正式总帐与生产指针仍属原计划明定的 MVP 外范围。
+
+2026-10-03 验收更新：两个既有 C07／C08 浏览器竞争案例已补实际收款、固定金额、allocation 与收据核对，2／2 通过，详见 [动作证据盘点](web-admin-action-audit.zh-CN.md)。 最终验收见下方。
+
+最新限定验收：30／30 个场景通过，T01–T22 全完成，Web Admin 本机交付完成。可重跑证据与限制见 [动作证据盘点](web-admin-action-audit.zh-CN.md)。

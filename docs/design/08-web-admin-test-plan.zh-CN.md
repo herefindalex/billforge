@@ -3,7 +3,7 @@
 [English](08-web-admin-test-plan.md) | [繁體中文](08-web-admin-test-plan.zh-TW.md) | **简体中文**
 
 
-状态：A01–A30 的完整逐项验收 **尚未完成**。C01–C49 均有 API 与 UI 操作入口；Go 测试覆盖主要成功路径、session／CSRF、schema 升级、lease、批量恢复与 fake provider 故障。可重跑的 Playwright 测试涵盖购买、付款与退款结果未定的查证、价格与用量、合约、对帐、帐户迁移及其切换门槛；详情与历史数据可跨页查阅。逐项证据和剩余错误矩阵见[Web Admin 实作纪录](../implementation/web-admin.zh-CN.md)。
+状态：截至 2026-10-03，Web Admin 实作与 A01–A30 本机验收完成。原设计范围不变，目前证据与限制以 [实作记录](../implementation/web-admin.zh-CN.md) 为准。
 
 依据：[功能设计](05-web-admin.zh-CN.md)、[工程契约与 C01–C49](06-web-admin-contracts.zh-CN.md)、[任务计划](07-web-admin-implementation-plan.zh-CN.md)。测试环境为真实 Go server、隔离 commerce/provider SQLite、可控制的 business clock；无外部支付连接。
 

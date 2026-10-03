@@ -3,7 +3,9 @@
 [English](a01-domain-baseline.md) | **繁體中文** | [简体中文](a01-domain-baseline.zh-CN.md)
 
 
-狀態：部分完成。2026-09-27 以隔離的 commerce／provider SQLite 執行 `go test ./... -count=1`，950／950 通過；`go vet ./...` 通過。通過代表下列既有路徑在本機 fixture 中保持原行為；只有「直接比對」欄列出的案例，才證明管理命令與直接領域入口產生相同的金融事實。
+狀態：限定本機通過。S01–S12／P01–P03 均有 domain／admin fixture、固定金額／狀態 oracle 與共用交易 helper 對照。最新完整 Go 回歸 355 個頂層測試／1115 個含子案例事件通過、零失敗。首次 process 就緒逾時在單獨 1 次、診斷 20 次及最終全套均未重現；根因未確認，test-only 退出診斷不宣稱修復。
+
+歷史 2026-09-27 紀錄：950／950 與 go vet 通過。
 
 | 情境 | 領域或 API 基線 | 關聯管理操作 | 直接比對 |
 | --- | --- | --- | --- |
@@ -58,4 +60,8 @@
 | 明確後續價格只切換一次 | C31 設定後續價格；C44／C32 與直接領域路徑逐期比對合約 7500、兩張 Net30 帳單到期收款、轉價後 10000 帳單、付款義務與實收；11 月 1 日指派新增一次，12 月 1 日仍只有兩筆價格指派與一筆合約轉換 | 涵蓋該合約 fixture 的指定後續價格分支 |
 | 新費率不得讓未展示費用的舊 client 建立義務 | C19／C20／C21 透過管理命令發布 AI token SKU；`/v1` 報價揭露三個元件與當下應付 3000；無 `meter:ai_tokens_admin` 能力宣告回 409 且零訂閱，有宣告才接受 | 涵蓋本機該 SKU 與舊 API client；未驗所有 consumer 版本 |
 
-這份對照不把原有領域測試通過推論成所有管理入口等價。未標示直接比對的情境仍須核對其管理命令是否沿用相同領域交易、來源守衛與恢復規則；A01 因此保持部分完成。
+S01–S12／P01–P03 對照已核實 public domain 路徑與共用交易 helper。超出 fixture 的其他變體仍是證據範圍限制，不推論所有入口普遍等價。
+
+```sh
+rtk proxy go test ./... -count=1 -timeout=300s -json > /tmp/billforge-go-acceptance-diagnostic.json
+```

@@ -3,7 +3,7 @@
 **English** | [繁體中文](08-web-admin-test-plan.zh-TW.md) | [简体中文](08-web-admin-test-plan.zh-CN.md)
 
 
-Status: Complete individual acceptance of the A01 and A30 has not been completed. C01 - C49 has both API and UI operation inputs; Go testing covers major success paths, session/CSRF schemes, upgrades, lease, batch recovery and fake provider failures. Repeatable Playwright tests include verification of purchase, payment and withdrawal results, price and usage, contracts, reconciliation, account migration and its switching thresholds; Details and historical data can be viewed across pages. For individual proofs and remaining error matrix see [Web Admin is a live recording](../implementation/web-admin.md).
+Status: Web Admin implementation and local A01-A30 acceptance are complete as of 2026-10-03. The original design scope remains unchanged; current evidence and limits are in [the implementation record](../implementation/web-admin.md).
 
 According to: [Functional design](05-web-admin.md), [Engineering contract with C01 and C49](06-web-admin-contracts.md), [Mission Plans](07-web-admin-implementation-plan.md). Testing environments for real Go servers, isolated commerce/provider SQLite, controllable business clock; There is no external payment connection.
 

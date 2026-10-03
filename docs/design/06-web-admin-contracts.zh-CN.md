@@ -3,7 +3,7 @@
 [English](06-web-admin-contracts.md) | [繁體中文](06-web-admin-contracts.zh-TW.md) | **简体中文**
 
 
-状态：规划完成、部分实作。2026-09-26；React 与 Ant Design 已由用户确认。本文将 [功能设计](05-web-admin.zh-CN.md) 的开放选项收敛为可实作决策。条目包含尚未实作的 API 与命令，实际可用范围以[实作计划](07-web-admin-implementation-plan.zh-CN.md)中的进度纪录为准。
+状态：截至 2026-10-03，Web Admin 实作与 A01–A30 本机验收完成。原设计范围不变，目前证据与限制以 [实作记录](../implementation/web-admin.zh-CN.md) 为准。
 
 ## 1. 确定的架构
 

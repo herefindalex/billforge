@@ -3,7 +3,7 @@
 **English** | [繁體中文](05-web-admin.zh-TW.md) | [简体中文](05-web-admin.zh-CN.md)
 
 
-Status: Design and implementation planning completed, Web Admin implementation underway. React、Ant Design and `.env` single logins have been confirmed by users. Based on the CLI, `api.New` routes and field services in the 2026-09-26 work zone. The scope of the functionality is determined by the progress record in [Action Plans](07-web-admin-implementation-plan.md).
+Status: Web Admin implementation and local A01-A30 acceptance are complete as of 2026-10-03. The original design scope remains unchanged; current evidence and limits are in [the implementation record](../implementation/web-admin.md).
 
 ## 1. Objectives and scope
 
@@ -200,7 +200,7 @@ The first edition did not report revenue growth as the acceptance goal. The firs
 
 ## 9. Design completion and interaction
 
-This document completes the directions, the full CLI capability control, the main images, the amount/state interactions, the back end gaps, the management end permissions, the delivery and acceptance standards in stages. The next step is to start with W1 and eventually complete W1 and W5 before Web Admin can be called.
+Historical checkpoint, superseded by the final local acceptance above: This document completes the directions, the full CLI capability control, the main images, the amount/state interactions, the back end gaps, the management end permissions, the delivery and acceptance standards in stages. The next step is to start with W1 and eventually complete W1 and W5 before Web Admin can be called.
 
 The price/payment policy is based on both AD and practical documentation. New preview limit, session management, command persistence and auditing requirements are designed to be added to this template; This document should not be considered as evidence that these functions already exist.
 

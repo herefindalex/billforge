@@ -3,11 +3,11 @@
 [English](07-web-admin-implementation-plan.md) | **繁體中文** | [简体中文](07-web-admin-implementation-plan.zh-CN.md)
 
 
-狀態：設計與實作規劃完成；**功能實作進行中**。使用者已確認 React 與 Ant Design，並已授權依計畫完成實作。下方 checkbox 需在完整驗收後才勾選，不能把局部實作視為整項任務通過。
+狀態：截至 2026-10-03，T01–T22 與 A01–A30 本機驗收全完成。Checkbox 依實作與驗收證據勾選，證據與限制見 [實作紀錄](../implementation/web-admin.zh-TW.md)。
 
 上位文件：[功能設計](05-web-admin.zh-TW.md)、[工程契約](06-web-admin-contracts.zh-TW.md)、[驗收計畫](08-web-admin-test-plan.zh-TW.md)。[JSONL](web-admin-tasks.jsonl) 保留原始任務估算與依賴，當前驗收狀態以[實作紀錄](../implementation/web-admin.zh-TW.md)為準。
 
-目前已可使用的切片：本機 `.env` 管理帳密登入、session／CSRF、React＋Ant Design 頁面、分頁列表、資源詳情、概覽，以及 C01–C49 的命令入口。訂閱、帳單、對帳與帳戶遷移均有可追來源的詳情頁；批次進度、命令恢復及本機 fake provider 故障也可操作。主要成功路徑與部分錯誤路徑已有 Go 和瀏覽器證據；**A01–A30 的完整逐項驗收仍未完成**，最新結果見[實作紀錄](../implementation/web-admin.zh-TW.md)。
+A01–A30 在文件列明的本機範圍通過（30／30），T01–T22 全完成。最終獨立複查沒有阻擋或重要問題；49 項動作紀錄連接 UI 路徑、handler、domain helper、來源守衛、能力、預覽政策、收據／恢復政策、HTTP 測試、瀏覽器情境與執行證據。
 
 ## 1. 工程審查結論
 
@@ -46,28 +46,28 @@ T13＋T18 → T19；T06＋T07＋T09 → T20
 
 以下路徑均為預計 ownership；同一路徑的重構串行完成，避免多個工作者同時修改交易骨架。未啟動任何 subagent、worktree 或分支。
 
-- [ ] **T01（P1，0.5–1 日）— 凍結契約與回歸基線。** 來源 F09/F10。檔案：`docs/design/06–08`、`lab/*_test.go`。盤點既有 S01–S12/P01–P03 fixture，建立 old-schema fixture 與 C01–C49 mapping。依賴：無。驗收：A01；既有測試結果另行保存，任何新發現的 domain 缺陷先列出，不以新 UI 掩蓋。
+- [x] **T01（P1，0.5–1 日）— 凍結契約與回歸基線。** 來源 F09/F10。檔案：`docs/design/06–08`、`lab/*_test.go`。盤點既有 S01–S12/P01–P03 fixture，建立 old-schema fixture 與 C01–C49 mapping。依賴：無。驗收：A01；既有測試結果另行保存，任何新發現的 domain 缺陷先列出，不以新 UI 掩蓋。
 - [x] **T02（P1，0.5–1 日）— 建立 React 與嵌入式 build 骨架。** 來源 F08/F10。檔案：`web/admin/`、`cmd/lab/adminassets/`、`cmd/lab/admin.go`。加 route shell、pnpm lock、TypeScript、Vite、Ant Design ConfigProvider／App 與主題 token、build tags。依賴：T01。驗收：A02；有／無 dist build、深連結刷新、資產路徑與錯誤頁都可判定。
 - [x] **T03（P1，1–2 日）— 實作 session、CSRF、權限與專用路由。** 來源 F02。檔案：`api/admin/session.go`、`permissions.go`、`router.go`、`cmd/lab/admin.go`、`.env.example`、`.gitignore`。依賴：T01。驗收：A03/A04；`.env` 缺值／格式／優先序、登入失敗限流、session 期限、Host/Origin、未授權、重啟與舊 v1 隔離。
-- [ ] **T04（P1，1–2 日）— 新增 commerce/provider 的 versioned admin schema 與升級。** 來源 F05/F10。檔案：`lab/admin_schema.go`、`lab/admin_migration_test.go`。依賴：T01。驗收：A05；新庫、舊庫、重跑、失敗 rollback、financial history 不變及舊 CLI 相容。
-- [ ] **T05（P1，2–4 日）— 抽出交易 helper，保留既有 public wrapper。** 來源 F03/F06。檔案：`lab/lab.go`、`billing.go`、`corrections.go`、`refunds.go`、`subscription_changes.go`、`immediate.go`、`usage.go` 及其他寫入模組。依賴：T04。驗收：A01/A06；無 nested transaction、public 回歸、業務與 receipt 同 commit。此任務不一次改變全部金額政策。
-- [ ] **T06（P1，2–3 日）— 命令 admission、worker、receipt 與中斷恢復。** 來源 F03/F05。檔案：`lab/admin_commands.go`、`admin_worker.go`、`api/admin/commands.go`。依賴：T03/T05。驗收：A06/A07/A08；canonical hash、同 key 重播、lease generation、權限撤銷及不同 crash points。
-- [ ] **T07（P1，1–2 日）— 管理預覽與精確 API 值型別。** 來源 F04/F08。檔案：`lab/admin_previews.go`、`api/admin/types.go`、`errors.go`。依賴：T06。驗收：A09/A10；preview 單命令綁定、expiry、不同 actor、source change、金額上限、int64 邊界與結構化錯誤。
-- [ ] **T08（P1，1–2 日）— 管理查詢骨架與核心 DTO。** 來源 F01。檔案：`lab/admin_queries.go`、`api/admin/queries.go`。依賴：T04。驗收：A11；分頁與 allowlist filters、取消查詢、來源版本、去敏及新資料跨頁語意。各功能模組的查詢在對應任務補齊。
-- [ ] **T09（P1，1–2 日）— 操作台共用 UI。** 來源 F08。檔案：`web/admin/src/app/`、`components/`、`api/`。依賴：T02/T03/T08。驗收：A12；以 Ant Design Table／Form／Modal 等建立表格、時間軸、預覽、命令進度、權限與 stale/error/empty 狀態；檢查鍵盤與焦點、query invalidation、金額字串輸入及不可把一般 Popconfirm 當作金融確認流程。
-- [ ] **T10（P1，1–2 日）— 報價與訂閱全流程。** 來源 F04/F09；C01–C06（self-service/change）。檔案：`api/admin/subscriptions.go`、`lab/admin_subscription_commands.go`、`web/admin/src/features/subscriptions/`。依賴：T07/T09。驗收：A13/A14；quote 與 binding 原子、新購、下期變更、取消／恢復、即時升級、過期／revision／席次衝突。
-- [ ] **T11（P1，1–2 日）— 付款與退款操作。** 來源 F05/F06；C07–C10、C15–C17。檔案：`api/admin/payments.go`、`refunds.go`、`lab/refunds.go`、對應 frontend features。依賴：T10。驗收：A15/A16；按 ID 派送、原 key 查證、部分付款、確定失敗重試、UNKNOWN 保留、UI 不誤報成功。
-- [ ] **T12（P1，1–2 日）— 帳單更正、credit 與升級補償。** 來源 F04/F09；C11–C14。檔案：`api/admin/corrections.go`、`lab/admin_correction_commands.go`、invoice/credit features。依賴：T11/T13。驗收：A17；來源可追查、額度並行、不可重複更正、延遲／未提供服務補償與既有金額 oracle 一致。
-- [ ] **T13（P1，1–2 日）— 固定 membership 的 jobs 與營運操作。** 來源 F05/F06；C44/C45 及其他 batch 基礎。檔案：`lab/admin_jobs.go`、`api/admin/jobs.go`、jobs feature。依賴：T06/T07/T08/T09。驗收：A18；到期續約、權益刷新、逐項 receipt、部分失敗、重啟、關閉時停止 claim、membership 不漂移。
-- [ ] **T14（P1，1–2 日）— 產品、meter、價格與選價。** 來源 F04/F09；C18–C21。檔案：`api/admin/catalog.go`、catalog feature、相關 domain Tx helpers。依賴：T07/T09。驗收：A19；所有元件呈現、不可修改已發布價格、重播不重複發布、cohort 生效時點。
-- [ ] **T15（P1，1–2 日）— 價格遷移工作台。** 來源 F04/F05；C22–C25。檔案：`api/admin/price_migrations.go`、price-migrations feature。依賴：T13/T14。驗收：A20；完整預覽、固定逐戶 ID、衝突、略過、暫停／恢復與反向新批次。
-- [ ] **T16（P1，1–2 日）— 用量事件、關帳、重算與 CreditNote。** 來源 F06/F09；C26–C30。檔案：`api/admin/usage.go`、usage feature、domain usage helpers。依賴：T13/T14。驗收：A21；事件重複／內容衝突、撤銷來源、晚到差額、rating 歷史、正負差額分流。
-- [ ] **T17（P1，1–2 日）— 企業合約與 Net30。** 來源 F04/F09；C31/C32 及 C01/C02 的 contract 分支。檔案：`api/admin/contracts.go`、contracts feature。依賴：T10/T13/T14。驗收：A22；條款版本、合約客戶身分、先開通、到期收款、缺後續價 hold 與明確轉換。
-- [ ] **T18（P1，1–2 日）— 對帳、修復及人工決議。** 來源 F04/F05；C33–C35。檔案：`api/admin/reconciliation.go`、reconciliation feature。依賴：T11/T13。驗收：A23；expected/actual、證據、revision、穩定修復鍵、事後再核對，人工決議不等同資金修正。
-- [ ] **T19（P1，1–2 日）— 帳戶灰度遷移。** 來源 F04/F09；C36–C43。檔案：`api/admin/account_migrations.go`、account-migrations feature。依賴：T13/T18。驗收：A24；映射、shadow、來源、readiness、切讀／切寫／停止與 adapter 所有入口。
-- [ ] **T20（P1，1–2 日）— 實驗室時鐘與故障隔離。** 來源 F07；C46–C49。檔案：`lab/admin_clock.go`、`api/admin/lab.go`、lab feature。依賴：T06/T07/T09/T11。驗收：A25；per-command 時刻、wall clock lease、一次性 fault ticket、不同操作不受影響、UI 環境標示。
-- [ ] **T21（P1，2–3 日）— 完整 browser／並行／恢復／效能驗收。** 來源 F01/F05/F09。檔案：`web/admin/e2e/`、`api/admin/*_test.go`、`lab/admin_*_test.go`。依賴：T10–T20。驗收：A01–A28；真 Go server＋隔離 SQLite，覆蓋 49 命令，不用全部 mock 成功代替。
-- [ ] **T22（P1，0.5–1 日）— 交付 build 與操作文件。** 來源 F10。檔案：README、`docs/implementation/web-admin.md`、build scripts、schema upgrade 指引。依賴：T21。驗收：A29/A30；全新環境、既有 DB、建置 binary、登入到完整操作；核對 coverage，只有通過才更新完成追蹤。
+- [x] **T04（P1，1–2 日）— 新增 commerce/provider 的 versioned admin schema 與升級。** 來源 F05/F10。檔案：`lab/admin_schema.go`、`lab/admin_migration_test.go`。依賴：T01。驗收：A05；新庫、舊庫、重跑、失敗 rollback、financial history 不變及舊 CLI 相容。
+- [x] **T05（P1，2–4 日）— 抽出交易 helper，保留既有 public wrapper。** 來源 F03/F06。檔案：`lab/lab.go`、`billing.go`、`corrections.go`、`refunds.go`、`subscription_changes.go`、`immediate.go`、`usage.go` 及其他寫入模組。依賴：T04。驗收：A01/A06；無 nested transaction、public 回歸、業務與 receipt 同 commit。此任務不一次改變全部金額政策。
+- [x] **T06（P1，2–3 日）— 命令 admission、worker、receipt 與中斷恢復。** 來源 F03/F05。檔案：`lab/admin_commands.go`、`admin_worker.go`、`api/admin/commands.go`。依賴：T03/T05。驗收：A06/A07/A08；canonical hash、同 key 重播、lease generation、權限撤銷及不同 crash points。
+- [x] **T07（P1，1–2 日）— 管理預覽與精確 API 值型別。** 來源 F04/F08。檔案：`lab/admin_previews.go`、`api/admin/types.go`、`errors.go`。依賴：T06。驗收：A09/A10；preview 單命令綁定、expiry、不同 actor、source change、金額上限、int64 邊界與結構化錯誤。
+- [x] **T08（P1，1–2 日）— 管理查詢骨架與核心 DTO。** 來源 F01。檔案：`lab/admin_queries.go`、`api/admin/queries.go`。依賴：T04。驗收：A11；分頁與 allowlist filters、取消查詢、來源版本、去敏及新資料跨頁語意。各功能模組的查詢在對應任務補齊。
+- [x] **T09（P1，1–2 日）— 操作台共用 UI。** 來源 F08。檔案：`web/admin/src/app/`、`components/`、`api/`。依賴：T02/T03/T08。驗收：A12；以 Ant Design Table／Form／Modal 等建立表格、時間軸、預覽、命令進度、權限與 stale/error/empty 狀態；檢查鍵盤與焦點、query invalidation、金額字串輸入及不可把一般 Popconfirm 當作金融確認流程。
+- [x] **T10（P1，1–2 日）— 報價與訂閱全流程。** 來源 F04/F09；C01–C06（self-service/change）。檔案：`api/admin/subscriptions.go`、`lab/admin_subscription_commands.go`、`web/admin/src/features/subscriptions/`。依賴：T07/T09。驗收：A13/A14；quote 與 binding 原子、新購、下期變更、取消／恢復、即時升級、過期／revision／席次衝突。
+- [x] **T11（P1，1–2 日）— 付款與退款操作。** 來源 F05/F06；C07–C10、C15–C17。檔案：`api/admin/payments.go`、`refunds.go`、`lab/refunds.go`、對應 frontend features。依賴：T10。驗收：A15/A16；按 ID 派送、原 key 查證、部分付款、確定失敗重試、UNKNOWN 保留、UI 不誤報成功。
+- [x] **T12（P1，1–2 日）— 帳單更正、credit 與升級補償。** 來源 F04/F09；C11–C14。檔案：`api/admin/corrections.go`、`lab/admin_correction_commands.go`、invoice/credit features。依賴：T11/T13。驗收：A17；來源可追查、額度並行、不可重複更正、延遲／未提供服務補償與既有金額 oracle 一致。
+- [x] **T13（P1，1–2 日）— 固定 membership 的 jobs 與營運操作。** 來源 F05/F06；C44/C45 及其他 batch 基礎。檔案：`lab/admin_jobs.go`、`api/admin/jobs.go`、jobs feature。依賴：T06/T07/T08/T09。驗收：A18；到期續約、權益刷新、逐項 receipt、部分失敗、重啟、關閉時停止 claim、membership 不漂移。
+- [x] **T14（P1，1–2 日）— 產品、meter、價格與選價。** 來源 F04/F09；C18–C21。檔案：`api/admin/catalog.go`、catalog feature、相關 domain Tx helpers。依賴：T07/T09。驗收：A19；所有元件呈現、不可修改已發布價格、重播不重複發布、cohort 生效時點。
+- [x] **T15（P1，1–2 日）— 價格遷移工作台。** 來源 F04/F05；C22–C25。檔案：`api/admin/price_migrations.go`、price-migrations feature。依賴：T13/T14。驗收：A20；完整預覽、固定逐戶 ID、衝突、略過、暫停／恢復與反向新批次。
+- [x] **T16（P1，1–2 日）— 用量事件、關帳、重算與 CreditNote。** 來源 F06/F09；C26–C30。檔案：`api/admin/usage.go`、usage feature、domain usage helpers。依賴：T13/T14。驗收：A21；事件重複／內容衝突、撤銷來源、晚到差額、rating 歷史、正負差額分流。
+- [x] **T17（P1，1–2 日）— 企業合約與 Net30。** 來源 F04/F09；C31/C32 及 C01/C02 的 contract 分支。檔案：`api/admin/contracts.go`、contracts feature。依賴：T10/T13/T14。驗收：A22；條款版本、合約客戶身分、先開通、到期收款、缺後續價 hold 與明確轉換。
+- [x] **T18（P1，1–2 日）— 對帳、修復及人工決議。** 來源 F04/F05；C33–C35。檔案：`api/admin/reconciliation.go`、reconciliation feature。依賴：T11/T13。驗收：A23；expected/actual、證據、revision、穩定修復鍵、事後再核對，人工決議不等同資金修正。
+- [x] **T19（P1，1–2 日）— 帳戶灰度遷移。** 來源 F04/F09；C36–C43。檔案：`api/admin/account_migrations.go`、account-migrations feature。依賴：T13/T18。驗收：A24；映射、shadow、來源、readiness、切讀／切寫／停止與 adapter 所有入口。
+- [x] **T20（P1，1–2 日）— 實驗室時鐘與故障隔離。** 來源 F07；C46–C49。檔案：`lab/admin_clock.go`、`api/admin/lab.go`、lab feature。依賴：T06/T07/T09/T11。驗收：A25；per-command 時刻、wall clock lease、一次性 fault ticket、不同操作不受影響、UI 環境標示。
+- [x] **T21（P1，2–3 日）— 完整 browser／並行／恢復／效能驗收。** 來源 F01/F05/F09。檔案：`web/admin/e2e/`、`api/admin/*_test.go`、`lab/admin_*_test.go`。依賴：T10–T20。驗收：A01–A28；真 Go server＋隔離 SQLite，覆蓋 49 命令，不用全部 mock 成功代替。
+- [x] **T22（P1，0.5–1 日）— 交付 build 與操作文件。** 來源 F10。檔案：README、`docs/implementation/web-admin.md`、build scripts、schema upgrade 指引。依賴：T21。驗收：A29/A30；全新環境、既有 DB、建置 binary、登入到完整操作；核對 coverage，只有通過才更新完成追蹤。
 
 任務粗估不是交付承諾：主要風險集中在 T05–T07 的交易重構與恢復。T01 後依真實測試與 module 規模調整估時，保留功能範圍，不以縮減 C01–C49 趕期限。
 
@@ -85,7 +85,7 @@ T13＋T18 → T19；T06＋T07＋T09 → T20
 
 ## 4. 執行與驗證命令（擬新增）
 
-以下前端 scripts／admin build target 尚不存在，實作任務需建立後才能執行；目前不得把它們列為 passed。
+下列前端 scripts 與 admin build target 已實作；本機驗證、建置／升級／登入證據見 [實作紀錄](../implementation/web-admin.zh-TW.md)，命令保留供交付重跑。
 
 ```sh
 go test ./...
@@ -108,10 +108,10 @@ schema 與 command 測試先用 targeted `-run`，跨 transaction refactor 後�
 
 規劃沒有待使用者決定的阻塞項；React 已確認，其餘技術與預覽政策採本文決策。若之後要公開部署、多名真實操作者或接 PSP，需另做需求與威脅模型，不能直接宣稱本機方案已滿足。
 
-**設計結案**：文件連結、任務 DAG、49 命令 coverage、頁面／資料／失敗路徑／驗收 mapping 一致，且所有新增能力明示尚未實作。**開發結案**：T01–T22 完成、A01–A30 有真實證據、每一 C 命令都通過 contract matrix 和對應 browser 情境，才可把 Web Admin 標完成。目前只完成前者。
+**設計與開發結案（2026-10-03）**：T01–T22 與 A01–A30 在列明的本機範圍通過，49 項命令均有適用 contract 與 browser 證據。上方原驗收條件不變；保留範圍限制及首次 process 就緒逾時根因未確認的紀錄。
 
 ## 6. 本輪規劃檢查紀錄
 
 2026-09-26 完成文件檢查：C01–C49 共 49 項命令均有任務對應；T01–T22 依賴無循環；A01–A30 共 30 組驗收均被任務引用；文件相對連結可解析。React 與 `.env` 單一管理帳密登入已納入一致契約，舊 bootstrap 提案已被取代。
 
-以開始規劃前的內容 hash 核對，60 個既有 Go／module 檔案全部未變更。此次沒有建立前端專案、修改功能程式、安裝依賴、建立實際帳密或執行新增驗收。上述檢查證明規劃產物一致，不代表 Web Admin 功能已完成。
+歷史 checkpoint（已由上方最終本機驗收取代）：以開始規劃前的內容 hash 核對，60 個既有 Go／module 檔案全部未變更。此次沒有建立前端專案、修改功能程式、安裝依賴、建立實際帳密或執行新增驗收。上述檢查證明規劃產物一致，不代表 Web Admin 功能已完成。

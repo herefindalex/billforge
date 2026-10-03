@@ -3,7 +3,7 @@
 **English** | [繁體中文](06-web-admin-contracts.zh-TW.md) | [简体中文](06-web-admin-contracts.zh-CN.md)
 
 
-Status: Planning completed, partial implementation. 2026-09-26； React and Ant Design have been confirmed by users. This article incorporates the open options of [Functional design](05-web-admin.md) into a viable decision. The entries contain unimplemented API and commands, and the actual range of available data is based on progress records in [Action Plans](07-web-admin-implementation-plan.md).
+Status: Web Admin implementation and local A01-A30 acceptance are complete as of 2026-10-03. The original design scope remains unchanged; current evidence and limits are in [the implementation record](../implementation/web-admin.md).
 
 ## 1. Defined architecture
 
